@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Belize Flood Risk</title>
+<meta name="description" content="Interactive map of riverine flood hazard, exposed population and early-warning coverage gaps in Belize." />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
+      integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ==" crossorigin="" />
+<style>
+  :root{
+    --bg:#eef1f4; --panel:#ffffff; --panel-2:#f7f8fa; --ink:#1a1f2b; --muted:#5b6472;
+    --line:#e2e6ec; --accent:#2171b5; --shadow:0 2px 14px rgba(20,30,50,.10);
+    --radius:14px;
+  }
+  :root:not([data-theme="light"]){ }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0c1016; --panel:#141a22; --panel-2:#1b222c; --ink:#e8ebf0; --muted:#9aa4b2;
+      --line:#2a323d; --accent:#6aa9e0; --shadow:0 2px 18px rgba(0,0,0,.45);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0c1016; --panel:#141a22; --panel-2:#1b222c; --ink:#e8ebf0; --muted:#9aa4b2;
+    --line:#2a323d; --accent:#6aa9e0; --shadow:0 2px 18px rgba(0,0,0,.45);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);overflow:hidden}
+  #map{position:absolute;inset:0;background:var(--bg)}
+  .leaflet-container{background:var(--bg)}
+
+  /* ---- Panel ---- */
+  #panel{
+    position:absolute;top:14px;left:14px;z-index:1000;width:332px;max-width:calc(100vw - 28px);
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);
+    max-height:calc(100vh - 28px);display:flex;flex-direction:column;overflow:hidden;
+  }
+  .ph{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+  .ph h1{margin:0;font-size:16px;letter-spacing:-.01em}
+  .ph p{margin:4px 0 0;font-size:12px;color:var(--muted);line-height:1.45}
+  .pbody{overflow-y:auto;padding:4px 0 10px}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+  .stat{background:var(--panel);padding:11px 14px}
+  .stat b{display:block;font-size:18px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .stat span{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+
+  .group{padding:12px 16px 4px}
+  .group > h2{margin:0 0 8px;font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:700}
+
+  .lyr{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:10px;cursor:pointer;transition:background .12s}
+  .lyr:hover{background:var(--panel-2)}
+  .lyr input{margin-top:2px;accent-color:var(--accent);width:15px;height:15px;flex:0 0 auto;cursor:pointer}
+  .lyr .meta{flex:1;min-width:0}
+  .lyr .nm{font-size:13px;font-weight:600;line-height:1.25}
+  .lyr .ab{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.35}
+  .legend{margin-top:7px;display:flex;flex-direction:column;gap:4px}
+  .lrow{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted)}
+  .sw{width:13px;height:13px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(0,0,0,.12)}
+  .grad{height:10px;flex:1;border-radius:3px;min-width:70px}
+  .glabels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:2px}
+
+  .ctl{display:flex;align-items:center;gap:9px;padding:10px 16px 2px}
+  .ctl label{font-size:11px;color:var(--muted);min-width:52px}
+  .ctl input[type=range]{flex:1;accent-color:var(--accent)}
+
+  .foot{padding:11px 16px 14px;font-size:10.5px;color:var(--muted);line-height:1.5;border-top:1px solid var(--line);margin-top:6px}
+  .foot a{color:var(--accent);text-decoration:none}
+
+  /* theme + collapse buttons */
+  .btns{position:absolute;top:14px;right:14px;z-index:1000;display:flex;gap:8px}
+  .iconbtn{width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:var(--panel);
+    color:var(--ink);box-shadow:var(--shadow);cursor:pointer;font-size:16px;display:grid;place-items:center}
+  .iconbtn:hover{background:var(--panel-2)}
+  #collapse{display:none}
+
+  .leaflet-control-attribution{background:var(--panel)!important;color:var(--muted)!important}
+  .leaflet-control-attribution a{color:var(--accent)!important}
+  .leaflet-bar a{background:var(--panel);color:var(--ink);border-color:var(--line)}
+  .leaflet-bar a:hover{background:var(--panel-2)}
+  .tower-pop{font-size:12px}
+
+  @media (max-width:640px){
+    #panel{width:calc(100vw - 28px)}
+    #panel.hidden{transform:translateY(-120%)}
+    #collapse{display:grid}
+    #panel{transition:transform .2s}
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="btns">
+  <button id="collapse" class="iconbtn" title="Toggle panel">☰</button>
+  <button id="theme" class="iconbtn" title="Toggle light / dark">◐</button>
+</div>
+
+<aside id="panel">
+  <div class="ph">
+    <h1>Belize · Flood Risk Explorer</h1>
+    <p>Riverine flood hazard, exposed population and early-warning gaps. Derived from WRI Aqueduct &amp; WorldPop, 100 m grid.</p>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="pbody" id="layers"></div>
+  <div class="ctl">
+    <label for="op">Opacity</label>
+    <input id="op" type="range" min="0" max="100" value="85" />
+  </div>
+  <div class="foot">
+    Hazard: <b>WRI Aqueduct</b> riverine floods · Population: <b>WorldPop 2025</b> · Base: © OpenStreetMap, © CARTO.<br>
+    Built from the Belize training notebooks. Figures rounded.
+  </div>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
+        integrity="sha512-BwHfrr4c9kmRkLw6iXFdzcdWV/PGkVgiIyIWLLlTSXzWQzxuSg4DiQUCpauz/EWjgk5TYQqX/kvn9pG1NpYfqg==" crossorigin=""></script>
+<script>
+const STATS = [
+  {v:"342,870", l:"National population"},
+  {v:"~49,200", l:"Exposed · 1:100-yr"},
+  {v:"~20,000", l:"Exposed · 1:25-yr"},
+  {v:"~7,450",  l:"Outside EWS coverage"},
+];
+
+const BASES = {
+  light:"https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+  dark:"https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+};
+const ATTR='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a> · WRI Aqueduct · WorldPop';
+
+const map = L.map('map',{zoomControl:true,attributionControl:true,minZoom:6,maxZoom:14});
+let base = L.tileLayer(BASES.light,{subdomains:'abcd',attribution:ATTR}).addTo(map);
+
+const overlays = {}; // id -> L.imageOverlay
+let activeIds = new Set();
+let towerLayer=null, boundaryLayer=null;
+
+function renderStats(){
+  document.getElementById('stats').innerHTML = STATS.map(s=>
+    `<div class="stat"><b>${s.v}</b><span>${s.l}</span></div>`).join('');
+}
+
+function legendHTML(lg){
+  if(!lg) return '';
+  if(lg.type==='categorical'){
+    return `<div class="legend">`+lg.items.map(i=>
+      `<div class="lrow"><span class="sw" style="background:${i.color}"></span>${i.label}</div>`).join('')+`</div>`;
+  }
+  if(lg.type==='gradient'){
+    return `<div class="legend"><div class="grad" style="background:linear-gradient(90deg,${lg.colors[0]},${lg.colors[1]})"></div>`+
+      `<div class="glabels"><span>${lg.labels[0]}</span><span>${lg.labels[1]}</span></div></div>`;
+  }
+  return '';
+}
+
+const GROUPS = [
+  {key:'hazard',   title:'Flood hazard'},
+  {key:'exposure', title:'Exposure & early warning'},
+  {key:'context',  title:'Context'},
+];
+
+function setOpacity(v){
+  activeIds.forEach(id=>overlays[id] && overlays[id].setOpacity(v));
+}
+
+fetch('data/layers.json').then(r=>r.json()).then(meta=>{
+  map.fitBounds(meta.bounds,{padding:[20,20]});
+  renderStats();
+
+  // build image overlays
+  meta.layers.forEach(l=>{
+    overlays[l.id] = L.imageOverlay(l.file, l.bounds, {opacity:.85, interactive:false, className:'ov-'+l.id});
+  });
+
+  // UI
+  const host = document.getElementById('layers');
+  const op = ()=>document.getElementById('op').value/100;
+
+  GROUPS.forEach(g=>{
+    const items = meta.layers.filter(l=>l.group===g.key);
+    const extra = g.key==='context' ? [
+      {id:'__towers', name:`Telecom masts (${meta.n_towers})`, about:'OSM communication sites — proxy for alert dissemination infrastructure.',
+       legend:{type:'categorical',items:[{color:'#00897b',label:'Telecom mast'}]}},
+      {id:'__boundary', name:'National boundary', about:'Belize administrative outline.', legend:null},
+    ] : [];
+    if(!items.length && !extra.length) return;
+    const wrap=document.createElement('div'); wrap.className='group';
+    wrap.innerHTML=`<h2>${g.title}</h2>`;
+    [...items,...extra].forEach(l=>{
+      const row=document.createElement('label'); row.className='lyr';
+      const checked = l.default ? 'checked':'';
+      row.innerHTML=`<input type="checkbox" ${checked} data-id="${l.id}">
+        <div class="meta"><div class="nm">${l.name}</div>
+        <div class="ab">${l.about||''}</div>${legendHTML(l.legend)}</div>`;
+      wrap.appendChild(row);
+    });
+    host.appendChild(wrap);
+  });
+
+  function toggle(id,on){
+    if(id==='__towers'){
+      if(on){ if(!towerLayer){loadTowers();} else towerLayer.addTo(map);} else if(towerLayer) map.removeLayer(towerLayer);
+      return;
+    }
+    if(id==='__boundary'){
+      if(on){ if(!boundaryLayer){loadBoundary();} else boundaryLayer.addTo(map);} else if(boundaryLayer) map.removeLayer(boundaryLayer);
+      return;
+    }
+    const ov=overlays[id]; if(!ov) return;
+    if(on){ ov.setOpacity(op()); ov.addTo(map); activeIds.add(id);} else { map.removeLayer(ov); activeIds.delete(id);}
+    if(boundaryLayer) boundaryLayer.bringToFront();
+    if(towerLayer) towerLayer.bringToFront();
+  }
+
+  host.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+    cb.addEventListener('change',e=>toggle(e.target.dataset.id,e.target.checked));
+    if(cb.checked) toggle(cb.dataset.id,true);
+  });
+
+  document.getElementById('op').addEventListener('input',e=>setOpacity(e.target.value/100));
+
+  function loadBoundary(){
+    fetch('data/belize_boundary.geojson').then(r=>r.json()).then(gj=>{
+      boundaryLayer=L.geoJSON(gj,{style:{color:getComputedStyle(document.documentElement).getPropertyValue('--ink'),
+        weight:1.4,fill:false,opacity:.55,dashArray:'3 3'}}).addTo(map);
+    });
+  }
+  function loadTowers(){
+    fetch('data/towers.geojson').then(r=>r.json()).then(gj=>{
+      towerLayer=L.geoJSON(gj,{pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:4,color:'#fff',weight:1,
+        fillColor:'#00897b',fillOpacity:.95}).bindPopup('<div class="tower-pop"><b>Telecom mast</b><br>Alert dissemination site</div>')}).addTo(map);
+    });
+  }
+  L.control.scale({imperial:false,position:'bottomleft'}).addTo(map);
+});
+
+// theme toggle
+const root=document.documentElement;
+function applyTheme(t){
+  root.setAttribute('data-theme',t);
+  base.setUrl(t==='dark'?BASES.dark:BASES.light);
+  if(boundaryLayer) boundaryLayer.setStyle({color:getComputedStyle(root).getPropertyValue('--ink')});
+}
+let theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light';
+applyTheme(theme);
+document.getElementById('theme').onclick=()=>{theme=theme==='dark'?'light':'dark';applyTheme(theme);};
+document.getElementById('collapse').onclick=()=>document.getElementById('panel').classList.toggle('hidden');
+</script>
+</body>
+</html>

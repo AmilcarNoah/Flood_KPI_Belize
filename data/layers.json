@@ -1,0 +1,166 @@
+{
+  "center": [
+    17.191387467907077,
+    -88.36894179475696
+  ],
+  "bounds": [
+    [
+      15.874452901917309,
+      -89.25893793384509
+    ],
+    [
+      18.50832203389685,
+      -87.47894565566884
+    ]
+  ],
+  "n_towers": 132,
+  "layers": [
+    {
+      "id": "population",
+      "name": "Population (WorldPop 2025)",
+      "file": "data/overlays/population.png",
+      "bounds": [
+        [
+          15.874452901917309,
+          -89.25893793384509
+        ],
+        [
+          18.50832203389685,
+          -87.47894565566884
+        ]
+      ],
+      "group": "context",
+      "legend": {
+        "type": "gradient",
+        "colors": [
+          "#deebf7",
+          "#08306b"
+        ],
+        "labels": [
+          "low",
+          "\u226515 ppl / 100 m cell"
+        ]
+      },
+      "about": "Modelled 2025 residential population, 100 m grid. ~342,870 people nationally."
+    },
+    {
+      "id": "hazard_100yr",
+      "name": "Flood hazard \u2014 1:100-yr",
+      "default": true,
+      "file": "data/overlays/hazard_100yr.png",
+      "bounds": [
+        [
+          15.874452901917309,
+          -89.25893793384509
+        ],
+        [
+          18.50832203389685,
+          -87.47894565566884
+        ]
+      ],
+      "group": "hazard",
+      "legend": {
+        "type": "categorical",
+        "items": [
+          {
+            "color": "#fdae6b",
+            "label": "Tier 1 \u00b7 nuisance (0.15\u20130.5 m)"
+          },
+          {
+            "color": "#d7301f",
+            "label": "Tier 2 \u00b7 severe (\u2265 0.5 m)"
+          }
+        ]
+      },
+      "about": "WRI Aqueduct riverine inundation, 100-yr return period, depth \u2265 0.15 m."
+    },
+    {
+      "id": "hazard_025yr",
+      "name": "Flood hazard \u2014 1:25-yr",
+      "file": "data/overlays/hazard_025yr.png",
+      "bounds": [
+        [
+          15.874452901917309,
+          -89.25893793384509
+        ],
+        [
+          18.50832203389685,
+          -87.47894565566884
+        ]
+      ],
+      "group": "hazard",
+      "legend": {
+        "type": "categorical",
+        "items": [
+          {
+            "color": "#fdae6b",
+            "label": "Tier 1 \u00b7 nuisance (0.15\u20130.5 m)"
+          },
+          {
+            "color": "#d7301f",
+            "label": "Tier 2 \u00b7 severe (\u2265 0.5 m)"
+          }
+        ]
+      },
+      "about": "WRI Aqueduct riverine inundation, 25-yr return period. Smaller footprint than the 100-yr event."
+    },
+    {
+      "id": "exposed_pop",
+      "name": "Exposed population \u2014 1:100-yr",
+      "file": "data/overlays/exposed_pop.png",
+      "bounds": [
+        [
+          15.874452901917309,
+          -89.25893793384509
+        ],
+        [
+          18.50832203389685,
+          -87.47894565566884
+        ]
+      ],
+      "group": "exposure",
+      "legend": {
+        "type": "gradient",
+        "colors": [
+          "#efedf5",
+          "#3f007d"
+        ],
+        "labels": [
+          "low",
+          "\u226520 ppl / cell"
+        ]
+      },
+      "about": "Population living inside the 100-yr flood footprint. ~49,200 people exposed."
+    },
+    {
+      "id": "ews_gap",
+      "name": "Early-warning coverage gap",
+      "file": "data/overlays/ews_gap.png",
+      "bounds": [
+        [
+          15.874452901917309,
+          -89.25893793384509
+        ],
+        [
+          18.50832203389685,
+          -87.47894565566884
+        ]
+      ],
+      "group": "exposure",
+      "legend": {
+        "type": "categorical",
+        "items": [
+          {
+            "color": "#f768a1",
+            "label": "Gap at 25-yr baseline"
+          },
+          {
+            "color": "#7a0177",
+            "label": "Gap added by 100-yr expansion"
+          }
+        ]
+      },
+      "about": "People flooded but outside modelled early-warning coverage."
+    }
+  ]
+}
