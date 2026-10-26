@@ -8,14 +8,19 @@ const STATS = [
   {v:"~7,450",  l:"Outside EWS coverage"},
 ];
 
-// Basemaps — all keyless. OSM standard is the default (no account, no token);
-// CARTO Positron/Dark are keyless too and give cleaner light/dark tiles.
+// Basemaps — all KEYLESS (CARTO now watermarks its tiles "API KEY REQUIRED").
+// Esri's neutral gray canvas needs no key and is ideal under data overlays;
+// plain OpenStreetMap is the automatic fallback.
+const ESRI_ATTR='Tiles &copy; <a href="https://www.esri.com/">Esri</a> · WRI Aqueduct · WorldPop';
+const OSM_ATTR='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · WRI Aqueduct · WorldPop';
 const BASES = {
-  light:"https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-  dark:"https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  osm:"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+  light:{url:"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+         opts:{maxZoom:16, attribution:ESRI_ATTR}},
+  dark: {url:"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+         opts:{maxZoom:16, attribution:ESRI_ATTR}},
+  osm:  {url:"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+         opts:{subdomains:'abc', maxZoom:19, attribution:OSM_ATTR}}
 };
-const ATTR='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attributions">CARTO</a> · WRI Aqueduct · WorldPop';
 
 // Belize fallback view so the basemap always renders, even before data loads.
 const BELIZE_CENTER = [17.19, -88.49];
@@ -28,24 +33,20 @@ const GROUPS = [
 const map = L.map('map',{zoomControl:true,attributionControl:true,minZoom:6,maxZoom:14})
   .setView(BELIZE_CENTER, 8);               // <-- set a view immediately
 
-// Build a basemap tile layer; if its tiles fail to load (network/filter blocks
-// a host), fall back to plain OpenStreetMap so the map is never blank.
+// Build a basemap tile layer; if its tiles fail to load (host blocked),
+// fall back to plain OpenStreetMap so the map is never blank.
 let base, usingFallback=false;
-function tileOpts(url){
-  return url===BASES.osm
-    ? {subdomains:'abc', maxZoom:19, attribution:ATTR}
-    : {subdomains:'abcd', detectRetina:true, maxZoom:20, attribution:ATTR};
+function setBase(key){
+  const def = BASES[key];
+  if(base) map.removeLayer(base);
+  base = L.tileLayer(def.url, def.opts);
+  if(key!=='osm'){
+    let errs=0;
+    base.on('tileerror', ()=>{ if(!usingFallback && ++errs>=4){ usingFallback=true; setBase('osm'); } });
+  }
+  base.addTo(map);
 }
-function makeBase(url){
-  const t = L.tileLayer(url, tileOpts(url));
-  let errs=0;
-  t.on('tileerror', ()=>{
-    if(usingFallback) return;
-    if(++errs>=4){ usingFallback=true; base.setUrl(BASES.osm); }
-  });
-  return t;
-}
-base = makeBase(BASES.light).addTo(map);
+setBase('light');
 L.control.scale({imperial:false,position:'bottomleft'}).addTo(map);
 
 const overlays = {};
@@ -139,8 +140,9 @@ function toggle(id,on){
 // theme toggle
 function applyTheme(t){
   root.setAttribute('data-theme',t);
-  if(!usingFallback) base.setUrl(t==='dark'?BASES.dark:BASES.light);
-  if(boundaryLayer) boundaryLayer.setStyle({color:getComputedStyle(root).getPropertyValue('--ink')});
+  if(!usingFallback) setBase(t==='dark'?'dark':'light');
+  if(boundaryLayer){ boundaryLayer.setStyle({color:getComputedStyle(root).getPropertyValue('--ink')}); boundaryLayer.bringToFront(); }
+  if(towerLayer) towerLayer.bringToFront();
 }
 let theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light';
 applyTheme(theme);
