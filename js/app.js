@@ -263,10 +263,13 @@ function chapterBounds(ch){
     const m=0.06;
     return [[w-m,s-m],[e+m,n+m]];
   }
-  // trim the eastern edge (open sea / outer cayes) so the mainland centres and
-  // fills the free area rather than sitting off to one side
-  const east = Math.min(meta.bounds[2], -87.80);
-  return [[meta.bounds[0], meta.bounds[1]], [east, meta.bounds[3]]];
+  // trim all edges inward (open sea / outer cayes to the east, sparse corners
+  // elsewhere) so the mainland centres, fills the free area and frames closer
+  const west  = Math.max(meta.bounds[0], -89.12);
+  const south = Math.max(meta.bounds[1],  16.02);
+  const east  = Math.min(meta.bounds[2], -87.98);
+  const north = Math.min(meta.bounds[3],  18.42);
+  return [[west, south], [east, north]];
 }
 
 /* ---------- chapter rendering ---------- */
@@ -306,7 +309,7 @@ function setChapter(i, force){
   const bb = chapterBounds(ch);
   // fit flat so the country fills the free area, then apply a modest pitch
   let cam = null;
-  try { cam = map.cameraForBounds(bb, { padding: pad, bearing: ch.cam.bearing, maxZoom: 10 }); } catch(e){}
+  try { cam = map.cameraForBounds(bb, { padding: pad, bearing: ch.cam.bearing, maxZoom: 11.5 }); } catch(e){}
   const pitchEase = ch.cam.pitch >= 40 ? 0.5 : (ch.cam.pitch >= 25 ? 0.25 : 0.1);
   map.flyTo({ center: cam ? cam.center : meta.center, zoom: (cam ? cam.zoom : 7.0) - pitchEase,
               pitch: ch.cam.pitch, bearing: ch.cam.bearing,
@@ -370,7 +373,7 @@ function setupObserver(){
 function boot(){
   map = new maplibregl.Map({
     container:'map', style:basemapStyle(currentBase),
-    center:[-88.37,17.19], zoom:7.4, pitch:30, bearing:-10, antialias:true, attributionControl:true
+    center:[-88.37,17.19], zoom:8, pitch:30, bearing:-10, antialias:true, attributionControl:true
   });
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
   overlay = new MapboxOverlay({ interleaved:true, layers:[], onHover:handleHover, pickingRadius:8 });
