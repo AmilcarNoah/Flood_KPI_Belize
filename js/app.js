@@ -337,8 +337,8 @@ function buildStory(){
   const sc = document.getElementById('scrolly');
   let html = `<section class="step intro active" data-ch="0"><div class="card hero">
     <div class="kicker">Belize · Flood Risk</div>
-    <h1>When the rivers rise</h1>
-    <p>A data story about who lives where the water goes — and whether a warning can reach them in time.</p>
+    <h1>When the Rivers Rise</h1>
+    <p>Where does water go, where does a warning reach?.</p>
     <div class="scrollhint"><span class="chev">↓</span> scroll to explore · hover the map to inspect</div>
   </div></section>`;
   CHAPTERS.forEach((ch,i)=>{
