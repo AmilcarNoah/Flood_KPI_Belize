@@ -1,164 +1,209 @@
-/* Belize Flood Risk Explorer — map logic */
+/* Belize Flood Story — MapLibre GL + deck.gl 3D story map */
 'use strict';
 
-const STATS = [
-  {v:"342,870", l:"National population"},
-  {v:"~49,200", l:"Exposed · 1:100-yr"},
-  {v:"~20,000", l:"Exposed · 1:25-yr"},
-  {v:"~7,450",  l:"Outside EWS coverage"},
-];
+const { MapboxOverlay, ColumnLayer, ScatterplotLayer, GeoJsonLayer, BitmapLayer } = deck;
 
-// Basemaps — all KEYLESS (CARTO now watermarks its tiles "API KEY REQUIRED").
-// Esri's neutral gray canvas needs no key and is ideal under data overlays;
-// plain OpenStreetMap is the automatic fallback.
-const ESRI_ATTR='Tiles &copy; <a href="https://www.esri.com/">Esri</a> · WRI Aqueduct · WorldPop';
-const OSM_ATTR='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · WRI Aqueduct · WorldPop';
-const BASES = {
-  light:{url:"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-         opts:{maxZoom:16, attribution:ESRI_ATTR}},
-  dark: {url:"https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-         opts:{maxZoom:16, attribution:ESRI_ATTR}},
-  osm:  {url:"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-         opts:{subdomains:'abc', maxZoom:19, attribution:OSM_ATTR}}
+/* ---------- keyless, CORS-enabled vector basemap (OpenFreeMap) ----------
+   MapLibre fetches tiles with CORS; OpenFreeMap serves keyless styles with
+   access-control-allow-origin:*, unlike Esri/CARTO raster endpoints. */
+const STYLE_URL = {
+  dark:  'https://tiles.openfreemap.org/styles/dark',
+  light: 'https://tiles.openfreemap.org/styles/positron'
 };
 
-// Belize fallback view so the basemap always renders, even before data loads.
-const BELIZE_CENTER = [17.19, -88.49];
-const GROUPS = [
-  {key:'hazard',   title:'Flood hazard'},
-  {key:'exposure', title:'Exposure & early warning'},
-  {key:'context',  title:'Context'},
+/* ---------- color helpers ---------- */
+const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+function ramp(stops){ const c = stops.map(hex); return t => {
+  t = Math.max(0, Math.min(1, t)); const x = t*(c.length-1); const i = Math.floor(x); const f = x-i;
+  const a = c[i], b = c[Math.min(i+1,c.length-1)];
+  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+};}
+// neutral (population): slate -> pale ice
+const POP_RAMP = ramp(['#2c3a4d','#5a6f86','#9fb2c6','#dfe8f2','#ffffff']);
+// red severity (exposed people)
+const RED_RAMP = ramp(['#fdbba0','#fc8a6a','#ef5133','#c3161a','#7c0007']);
+
+/* ---------- state ---------- */
+let map, overlay, meta, DATA = {}, time = 0, raf;
+let theme = 'dark';
+let current = 0;
+
+const CHAPTERS = [
+  {
+    no:'01', title:'The land & its people', layers:['pop'],
+    cam:{ pitch:58, bearing:-18, zoom:8.2 },
+    narr:`Belize is small and low-lying. These peaks are its people — each column a
+      1&nbsp;km cell, its height the number of residents (WorldPop 2025).
+      <span class="big">342,870</span><span class="sub">people nationally · tallest peaks are Belize City & the north</span>`,
+    legend:{type:'grad', colors:['#2c3a4d','#ffffff'], labels:['fewer','more people / km²'], ttl:'Population density'}
+  },
+  {
+    no:'02', title:'Where the water goes', layers:['flood'],
+    cam:{ pitch:40, bearing:-8, zoom:8.3 },
+    narr:`Modelled riverine flooding for a 1-in-100-year event (WRI Aqueduct).
+      Deeper, darker reds mean more severe inundation — the river valleys and the
+      low coastal plain take the worst of it.
+      <span class="big">≥ 0.15 m</span><span class="sub">flood depth shown · fading reds scale with severity</span>`,
+    legend:{type:'grad', colors:['#fcbba1','#67000d'], labels:['shallow','severe'], ttl:'Flood depth / severity'}
+  },
+  {
+    no:'03', title:'People in the water', layers:['flood','exposed'],
+    cam:{ pitch:58, bearing:-18, zoom:8.4 },
+    narr:`Overlay the people on the flood. These red peaks are residents standing
+      inside the 100-year footprint — exposure, not just hazard.
+      <span class="big">~49,200</span><span class="sub">people exposed · about 1 in 7 Belizeans</span>`,
+    legend:{type:'grad', colors:['#fdbba0','#7c0007'], labels:['few','many exposed'], ttl:'Exposed population / km²'}
+  },
+  {
+    no:'04', title:'Can the warning reach them?', layers:['coverage','ping','exposed'],
+    cam:{ pitch:50, bearing:-18, zoom:8.4 },
+    narr:`Each telecom mast can carry an alert about 5&nbsp;km (buffered in UTM&nbsp;16N
+      for true distance). Watch the signal pulse outward. Where the pulse never
+      reaches the red peaks, people are flooded <em>and</em> unwarned.
+      <span class="big">~7,450</span><span class="sub">exposed people outside early-warning coverage</span>
+      <span class="ping-badge"><span class="pulse"></span>132 masts · 5 km reach</span>`,
+    legend:{type:'cat', ttl:'Early-warning coverage', items:[
+      {color:'rgba(59,209,196,.55)', label:'Within 5 km of a mast'},
+      {color:'#7c0007', label:'Exposed population'}]}
+  }
 ];
 
-const map = L.map('map',{zoomControl:true,attributionControl:true,minZoom:6,maxZoom:14})
-  .setView(BELIZE_CENTER, 8);               // <-- set a view immediately
+/* ---------- build deck layers for the active chapter ---------- */
+function buildLayers(){
+  const vis = new Set(CHAPTERS[current].layers);
+  const L = [];
 
-// Build a basemap tile layer; if its tiles fail to load (host blocked),
-// fall back to plain OpenStreetMap so the map is never blank.
-let base, usingFallback=false;
-function setBase(key){
-  const def = BASES[key];
-  if(base) map.removeLayer(base);
-  base = L.tileLayer(def.url, def.opts);
-  if(key!=='osm'){
-    let errs=0;
-    base.on('tileerror', ()=>{ if(!usingFallback && ++errs>=4){ usingFallback=true; setBase('osm'); } });
+  if(vis.has('flood') && DATA.floodBounds){
+    L.push(new BitmapLayer({ id:'flood', image:'data/overlays/flood_severity.png',
+      bounds:DATA.floodBounds, opacity:0.9 }));
   }
-  base.addTo(map);
+  if(vis.has('coverage') && DATA.coverage){
+    L.push(new GeoJsonLayer({ id:'coverage', data:DATA.coverage, stroked:true, filled:true,
+      getFillColor:[59,209,196,70], getLineColor:[59,209,196,180], lineWidthMinPixels:1 }));
+  }
+  if(vis.has('pop') && DATA.pop){
+    const m = meta.population.max;
+    L.push(new ColumnLayer({ id:'pop', data:DATA.pop, diskResolution:6, radius:460, extruded:true,
+      elevationScale:2.2, radiusUnits:'meters',
+      getPosition:d=>[d[0],d[1]], getElevation:d=>d[2],
+      getFillColor:d=>{ const c=POP_RAMP(Math.sqrt(d[2]/m)); return [c[0],c[1],c[2],235]; },
+      material:{ambient:.6,diffuse:.6,shininess:20,specularColor:[255,255,255]} }));
+  }
+  if(vis.has('exposed') && DATA.exp){
+    const m = meta.exposed.max;
+    L.push(new ColumnLayer({ id:'exposed', data:DATA.exp, diskResolution:6, radius:470, extruded:true,
+      elevationScale:3.4, radiusUnits:'meters',
+      getPosition:d=>[d[0],d[1]], getElevation:d=>d[2],
+      getFillColor:d=>{ const c=RED_RAMP(Math.sqrt(d[2]/m)); return [c[0],c[1],c[2],248]; },
+      material:{ambient:.65,diffuse:.6,shininess:30,specularColor:[255,220,210]} }));
+  }
+  if(vis.has('ping') && DATA.masts){
+    // three expanding rings, phase-offset, for a continuous pulse
+    for(let k=0;k<3;k++){
+      const prog = ((time/2600) + k/3) % 1;             // 0..1
+      L.push(new ScatterplotLayer({ id:'ping'+k, data:DATA.masts,
+        stroked:true, filled:false, radiusUnits:'meters',
+        getPosition:d=>d, getRadius:prog*5000, lineWidthMinPixels:1.5,
+        getLineColor:[59,209,196, 210*(1-prog)], updateTriggers:{getRadius:time, getLineColor:time} }));
+    }
+    L.push(new ScatterplotLayer({ id:'masts', data:DATA.masts, filled:true, radiusUnits:'pixels',
+      getPosition:d=>d, getRadius:3, getFillColor:[180,255,245,230] }));
+  }
+  return L;
 }
-setBase('light');
-L.control.scale({imperial:false,position:'bottomleft'}).addTo(map);
 
-const overlays = {};
-let activeIds = new Set();
-let towerLayer=null, boundaryLayer=null;
-const root=document.documentElement;
-
-function renderStats(){
-  document.getElementById('stats').innerHTML = STATS.map(s=>
-    `<div class="stat"><b>${s.v}</b><span>${s.l}</span></div>`).join('');
+/* ---------- animation loop (only needed while a ping chapter is active) ---------- */
+function animate(){
+  time = performance.now();
+  if(CHAPTERS[current].layers.includes('ping')){
+    overlay.setProps({ layers: buildLayers() });
+    raf = requestAnimationFrame(animate);
+  }
 }
+function startAnim(){ cancelAnimationFrame(raf); if(CHAPTERS[current].layers.includes('ping')) raf = requestAnimationFrame(animate); }
+
+/* ---------- chapter rendering ---------- */
 function legendHTML(lg){
   if(!lg) return '';
-  if(lg.type==='categorical'){
-    return `<div class="legend">`+lg.items.map(i=>
-      `<div class="lrow"><span class="sw" style="background:${i.color}"></span>${i.label}</div>`).join('')+`</div>`;
+  let inner = `<div class="ttl">${lg.ttl}</div>`;
+  if(lg.type==='grad'){
+    inner += `<div class="grad" style="background:linear-gradient(90deg,${lg.colors[0]},${lg.colors[1]})"></div>`+
+      `<div class="glabels"><span>${lg.labels[0]}</span><span>${lg.labels[1]}</span></div>`;
+  } else {
+    inner += lg.items.map(i=>`<div class="lrow"><span class="sw" style="background:${i.color}"></span>${i.label}</div>`).join('');
   }
-  if(lg.type==='gradient'){
-    return `<div class="legend"><div class="grad" style="background:linear-gradient(90deg,${lg.colors[0]},${lg.colors[1]})"></div>`+
-      `<div class="glabels"><span>${lg.labels[0]}</span><span>${lg.labels[1]}</span></div></div>`;
-  }
-  return '';
-}
-const opVal = ()=>document.getElementById('op').value/100;
-function setOpacity(v){ activeIds.forEach(id=>overlays[id] && overlays[id].setOpacity(v)); }
-
-function loadBoundary(){
-  fetch('data/belize_boundary.geojson').then(r=>r.json()).then(gj=>{
-    boundaryLayer=L.geoJSON(gj,{style:{color:getComputedStyle(root).getPropertyValue('--ink'),
-      weight:1.4,fill:false,opacity:.55,dashArray:'3 3'}}).addTo(map);
-  }).catch(()=>{});
-}
-function loadTowers(){
-  fetch('data/towers.geojson').then(r=>r.json()).then(gj=>{
-    towerLayer=L.geoJSON(gj,{pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:4,color:'#fff',weight:1,
-      fillColor:'#00897b',fillOpacity:.95}).bindPopup('<div class="tower-pop"><b>Telecom mast</b><br>Alert dissemination site</div>')}).addTo(map);
-  }).catch(()=>{});
+  return `<div class="legend">${inner}</div>`;
 }
 
-function buildUI(meta){
-  renderStats();
-  if(meta.bounds) map.fitBounds(meta.bounds,{padding:[20,20]});
+function goTo(i){
+  current = Math.max(0, Math.min(CHAPTERS.length-1, i));
+  const ch = CHAPTERS[current];
+  document.getElementById('cno').textContent = ch.no;
+  document.getElementById('ctitle').textContent = ch.title;
+  document.getElementById('narr').innerHTML = ch.narr + legendHTML(ch.legend);
+  document.querySelectorAll('.dot').forEach((d,idx)=>d.classList.toggle('on', idx<=current));
+  document.getElementById('prev').disabled = current===0;
+  document.getElementById('next').textContent = current===CHAPTERS.length-1 ? 'Restart ↺' : 'Next →';
 
-  meta.layers.forEach(l=>{
-    overlays[l.id] = L.imageOverlay(l.file, l.bounds, {opacity:.85, interactive:false, className:'ov-'+l.id});
+  const c = meta.center;
+  map.flyTo({ center:c, zoom:ch.cam.zoom, pitch:ch.cam.pitch, bearing:ch.cam.bearing,
+              duration:1800, essential:true });
+  overlay.setProps({ layers: buildLayers() });
+  startAnim();
+}
+
+/* ---------- boot ---------- */
+function boot(){
+  map = new maplibregl.Map({
+    container:'map', style:STYLE_URL.dark,
+    center:[-88.37,17.19], zoom:7.6, pitch:50, bearing:-18, antialias:true, attributionControl:true
   });
+  map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
+  overlay = new MapboxOverlay({ interleaved:true, layers:[] });
+  map.addControl(overlay);
 
-  const host = document.getElementById('layers');
-  GROUPS.forEach(g=>{
-    const items = meta.layers.filter(l=>l.group===g.key);
-    const extra = g.key==='context' ? [
-      {id:'__towers', name:`Telecom masts (${meta.n_towers||''})`, about:'OSM communication sites — proxy for alert dissemination infrastructure.',
-       legend:{type:'categorical',items:[{color:'#00897b',label:'Telecom mast'}]}},
-      {id:'__boundary', name:'National boundary', about:'Belize administrative outline.', legend:null},
-    ] : [];
-    if(!items.length && !extra.length) return;
-    const wrap=document.createElement('div'); wrap.className='group';
-    wrap.innerHTML=`<h2>${g.title}</h2>`;
-    [...items,...extra].forEach(l=>{
-      const row=document.createElement('label'); row.className='lyr';
-      row.innerHTML=`<input type="checkbox" ${l.default?'checked':''} data-id="${l.id}">
-        <div class="meta"><div class="nm">${l.name}</div>
-        <div class="ab">${l.about||''}</div>${legendHTML(l.legend)}</div>`;
-      wrap.appendChild(row);
-    });
-    host.appendChild(wrap);
-  });
+  const mapReady = new Promise(res=>{ if(map.loaded()) res(); else map.once('load', res); });
 
-  host.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-    cb.addEventListener('change',e=>toggle(e.target.dataset.id,e.target.checked));
-    if(cb.checked) toggle(cb.dataset.id,true);
+  Promise.all([
+    mapReady,
+    fetch('data/story_meta.json').then(r=>r.json()),
+    fetch('data/population_points.json').then(r=>r.json()),
+    fetch('data/exposed_points.json').then(r=>r.json()),
+    fetch('data/masts.json').then(r=>r.json()),
+    fetch('data/mast_coverage.geojson').then(r=>r.json())
+  ]).then(([_,m,pop,exp,masts,cov])=>{
+    meta = m;
+    DATA.pop = pop; DATA.exp = exp; DATA.masts = masts; DATA.coverage = cov;
+    const b = m.flood.bounds; DATA.floodBounds = [b[0],b[1],b[2],b[3]];
+    // build chapter rail
+    const rail = document.getElementById('rail');
+    CHAPTERS.forEach((_,i)=>{ const d=document.createElement('div'); d.className='dot';
+      d.onclick=()=>goTo(i); rail.appendChild(d); });
+    goTo(0);
+    setTimeout(()=>{ const h=document.getElementById('hint'); if(h) h.style.opacity=0; }, 6000);
+  }).catch(err=>{
+    console.error(err);
+    document.getElementById('narr').innerHTML =
+      '<p style="color:#e34a33">Could not load data. Serve this over <b>http</b> '+
+      '(a local server or GitHub Pages), not as a <code>file://</code> path.</p>';
   });
-  document.getElementById('op').addEventListener('input',e=>setOpacity(e.target.value/100));
 }
 
-function toggle(id,on){
-  if(id==='__towers'){
-    if(on){ if(!towerLayer){loadTowers();} else towerLayer.addTo(map);} else if(towerLayer) map.removeLayer(towerLayer);
-    return;
-  }
-  if(id==='__boundary'){
-    if(on){ if(!boundaryLayer){loadBoundary();} else boundaryLayer.addTo(map);} else if(boundaryLayer) map.removeLayer(boundaryLayer);
-    return;
-  }
-  const ov=overlays[id]; if(!ov) return;
-  if(on){ ov.setOpacity(opVal()); ov.addTo(map); activeIds.add(id);} else { map.removeLayer(ov); activeIds.delete(id);}
-  if(boundaryLayer) boundaryLayer.bringToFront();
-  if(towerLayer) towerLayer.bringToFront();
-}
-
-// theme toggle
-function applyTheme(t){
-  root.setAttribute('data-theme',t);
-  if(!usingFallback) setBase(t==='dark'?'dark':'light');
-  if(boundaryLayer){ boundaryLayer.setStyle({color:getComputedStyle(root).getPropertyValue('--ink')}); boundaryLayer.bringToFront(); }
-  if(towerLayer) towerLayer.bringToFront();
-}
-let theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light';
-applyTheme(theme);
-document.getElementById('theme').onclick=()=>{theme=theme==='dark'?'light':'dark';applyTheme(theme);};
-document.getElementById('collapse').onclick=()=>document.getElementById('panel').classList.toggle('hidden');
-
-// load data (requires http:// — fetch is blocked on file://)
-fetch('data/layers.json')
-  .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
-  .then(buildUI)
-  .catch(err=>{
-    console.error('Could not load data/layers.json:', err);
-    renderStats();
-    const b=document.getElementById('banner');
-    b.classList.add('show');
-    b.innerHTML = (location.protocol==='file:')
-      ? '⚠ Open this page over <b>http</b>, not as a file. Run a local server (<code>python -m http.server</code>) or use the GitHub Pages URL — browsers block data loading on <code>file://</code>.'
-      : '⚠ Could not load map layers (<code>data/layers.json</code>). The basemap is shown; check that the <code>data/</code> folder deployed.';
+/* ---------- controls ---------- */
+window.addEventListener('DOMContentLoaded', ()=>{
+  boot();
+  document.getElementById('next').onclick = ()=> goTo(current===CHAPTERS.length-1 ? 0 : current+1);
+  document.getElementById('prev').onclick = ()=> goTo(current-1);
+  document.getElementById('replay').onclick = ()=> goTo(current);
+  document.getElementById('open').onclick = ()=> document.getElementById('story').classList.toggle('hidden');
+  document.getElementById('theme').onclick = ()=>{
+    theme = theme==='dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+    map.setStyle(STYLE_URL[theme]);
+    map.once('styledata', ()=> overlay.setProps({ layers: buildLayers() }));
+  };
+  window.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight') goTo(current+1);
+    if(e.key==='ArrowLeft') goTo(current-1);
   });
+});

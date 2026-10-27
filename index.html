@@ -1,42 +1,45 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Belize Flood Risk</title>
-<meta name="description" content="Interactive map of riverine flood hazard, exposed population and early-warning coverage gaps in Belize." />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"
-      integrity="sha512-Zcn6bjR/8RZbLEpLIeOwNtzREBAJnUKESxces60Mpoj+2okopSAcSUIUOseddDm0cxnGQzxIR7vJgsLZbdLE3w==" crossorigin="" />
+<title>Belize Flood Story</title>
+<meta name="description" content="A 3D story map of flood hazard, population exposure and early-warning coverage in Belize." />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css"
+      integrity="sha512-qN/uDg9bS3IAldWq4lswyC+9ZSoShtfyNDp+FaJhdtXJqdgubHA+s4nB8BajW0m90Y0+RBGbqu2anzbxiQYdHA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
 <div id="map"></div>
 
-<div class="btns">
-  <button id="collapse" class="iconbtn" title="Toggle panel">☰</button>
-  <button id="theme" class="iconbtn" title="Toggle light / dark">◐</button>
+<button id="open" class="iconbtn" title="Show story">☰</button>
+<div class="tools">
+  <button id="replay" class="iconbtn" title="Replay animation">⟳</button>
+  <button id="theme" class="iconbtn" title="Light / dark">◐</button>
 </div>
 
-<aside id="panel">
-  <div class="ph">
-    <h1>Belize · Flood Risk Explorer</h1>
-    <p>Riverine flood hazard, exposed population and early-warning gaps. Derived from WRI Aqueduct &amp; WorldPop, 100 m grid.</p>
+<aside id="story">
+  <div class="brand">
+    <div class="kicker">Belize · Flood Risk</div>
+    <h1>When the rivers rise</h1>
+    <p>A data story: who lives where the water goes, and whether a warning can reach them in time. Built from WRI Aqueduct flood models and WorldPop, 100&nbsp;m grid.</p>
   </div>
-  <div id="banner" class="banner"></div>
-  <div class="stats" id="stats"></div>
-  <div class="pbody" id="layers"></div>
-  <div class="ctl">
-    <label for="op">Opacity</label>
-    <input id="op" type="range" min="0" max="100" value="85" />
-  </div>
-  <div class="foot">
-    Hazard: <b>WRI Aqueduct</b> riverine floods · Population: <b>WorldPop 2025</b> · Base: © Esri / OpenStreetMap.<br>
-    Built from the Belize training notebooks. Figures rounded.
+
+  <div class="chaptitle"><span class="no" id="cno">01</span><h2 id="ctitle">—</h2></div>
+  <div class="narr" id="narr"></div>
+
+  <div class="rail" id="rail"></div>
+  <div class="nav">
+    <button id="prev">← Back</button>
+    <button id="next" class="primary">Next →</button>
   </div>
 </aside>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
-        integrity="sha512-BwHfrr4c9kmRkLw6iXFdzcdWV/PGkVgiIyIWLLlTSXzWQzxuSg4DiQUCpauz/EWjgk5TYQqX/kvn9pG1NpYfqg==" crossorigin=""></script>
+<div class="hint" id="hint">Drag to orbit · scroll to zoom</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"
+        integrity="sha512-dXgoFR02YHJ9Fa29P3D/1umNaZ0EXS2N0w29Lm3b/1BK8UDLMdLWDFwuujIyJJdU27/PLuk3dmS1V9NO8ABX1A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.0.36/dist.min.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
