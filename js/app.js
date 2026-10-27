@@ -44,7 +44,7 @@ const CHAPTERS = [
       Deeper, darker blues mean more severe inundation — the river valleys and the
       low coastal plain take the worst of it.
       <span class="big">≥ 0.15 m</span><span class="sub">flood depth shown · fading blues scale with severity</span>`,
-    legend:{type:'grad', colors:['#d6e6f4','#08306b'], labels:['shallow','severe'], ttl:'Flood depth / severity'}
+    legend:{type:'grad', colors:['#4ba3d6','#08306b'], labels:['shallow','severe'], ttl:'Flood depth / severity'}
   },
   {
     no:'03', title:'People in the water', layers:['flood','exposed'],
@@ -73,10 +73,7 @@ function buildLayers(){
   const vis = new Set(CHAPTERS[current].layers);
   const L = [];
 
-  if(vis.has('flood') && DATA.floodBounds){
-    L.push(new BitmapLayer({ id:'flood', image:'data/overlays/flood_severity.png',
-      bounds:DATA.floodBounds, opacity:0.9 }));
-  }
+  // flood is drawn as native MapLibre glow layers (see addFloodLayers), not deck
   if(vis.has('coverage') && DATA.coverage){
     L.push(new GeoJsonLayer({ id:'coverage', data:DATA.coverage, stroked:true, filled:true,
       getFillColor:[59,209,196,70], getLineColor:[59,209,196,180], lineWidthMinPixels:1 }));
@@ -122,6 +119,30 @@ function animate(){
 }
 function startAnim(){ cancelAnimationFrame(raf); if(CHAPTERS[current].layers.includes('ping')) raf = requestAnimationFrame(animate); }
 
+/* ---------- glowing blue flood vectors (native MapLibre layers) ---------- */
+const FLOOD_IDS = ['flood-glow3','flood-glow2','flood-glow1','flood-fill','flood-edge'];
+function addFloodLayers(){
+  if(!DATA.floodVec || map.getSource('flood')) return;
+  map.addSource('flood', { type:'geojson', data:DATA.floodVec });
+  // three stacked blurred lines = soft outer glow
+  map.addLayer({ id:'flood-glow3', type:'line', source:'flood', layout:{visibility:'none'},
+    paint:{'line-color':'#8fe6ff','line-width':16,'line-blur':20,'line-opacity':0.25} });
+  map.addLayer({ id:'flood-glow2', type:'line', source:'flood', layout:{visibility:'none'},
+    paint:{'line-color':'#5fd0ff','line-width':8,'line-blur':10,'line-opacity':0.45} });
+  map.addLayer({ id:'flood-glow1', type:'line', source:'flood', layout:{visibility:'none'},
+    paint:{'line-color':'#3bc0ff','line-width':3.5,'line-blur':4,'line-opacity':0.7} });
+  // graduated blue fill by depth class
+  map.addLayer({ id:'flood-fill', type:'fill', source:'flood', layout:{visibility:'none'},
+    paint:{'fill-color':['match',['get','cls'],1,'#4ba3d6',2,'#2171b5',3,'#08519c',4,'#08306b','#2171b5'],
+           'fill-opacity':0.62} });
+  // crisp bright edge
+  map.addLayer({ id:'flood-edge', type:'line', source:'flood', layout:{visibility:'none'},
+    paint:{'line-color':'#cdeeff','line-width':1,'line-opacity':0.9} });
+}
+function setFloodVisible(v){
+  FLOOD_IDS.forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility', v?'visible':'none'); });
+}
+
 /* ---------- chapter rendering ---------- */
 function legendHTML(lg){
   if(!lg) return '';
@@ -148,6 +169,7 @@ function goTo(i){
   const c = meta.center;
   map.flyTo({ center:c, zoom:ch.cam.zoom, pitch:ch.cam.pitch, bearing:ch.cam.bearing,
               duration:1800, essential:true });
+  setFloodVisible(ch.layers.includes('flood'));
   overlay.setProps({ layers: buildLayers() });
   startAnim();
 }
@@ -170,11 +192,12 @@ function boot(){
     fetch('data/population_points.json').then(r=>r.json()),
     fetch('data/exposed_points.json').then(r=>r.json()),
     fetch('data/masts.json').then(r=>r.json()),
-    fetch('data/mast_coverage.geojson').then(r=>r.json())
-  ]).then(([_,m,pop,exp,masts,cov])=>{
+    fetch('data/mast_coverage.geojson').then(r=>r.json()),
+    fetch('data/flood_vectors.geojson').then(r=>r.json())
+  ]).then(([_,m,pop,exp,masts,cov,flood])=>{
     meta = m;
-    DATA.pop = pop; DATA.exp = exp; DATA.masts = masts; DATA.coverage = cov;
-    const b = m.flood.bounds; DATA.floodBounds = [b[0],b[1],b[2],b[3]];
+    DATA.pop = pop; DATA.exp = exp; DATA.masts = masts; DATA.coverage = cov; DATA.floodVec = flood;
+    addFloodLayers();
     // build chapter rail
     const rail = document.getElementById('rail');
     CHAPTERS.forEach((_,i)=>{ const d=document.createElement('div'); d.className='dot';
@@ -200,7 +223,11 @@ window.addEventListener('DOMContentLoaded', ()=>{
     theme = theme==='dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', theme);
     map.setStyle(STYLE_URL[theme]);
-    map.once('styledata', ()=> overlay.setProps({ layers: buildLayers() }));
+    map.once('styledata', ()=>{
+      addFloodLayers();
+      setFloodVisible(CHAPTERS[current].layers.includes('flood'));
+      overlay.setProps({ layers: buildLayers() });
+    });
   };
   window.addEventListener('keydown', e=>{
     if(e.key==='ArrowRight') goTo(current+1);
