@@ -265,10 +265,10 @@ function chapterBounds(ch){
   }
   // trim all edges inward (open sea / outer cayes to the east, sparse corners
   // elsewhere) so the mainland centres, fills the free area and frames closer
-  const west  = Math.max(meta.bounds[0], -89.12);
-  const south = Math.max(meta.bounds[1],  16.02);
-  const east  = Math.min(meta.bounds[2], -87.98);
-  const north = Math.min(meta.bounds[3],  18.42);
+  const west  = Math.max(meta.bounds[0], -89.06);
+  const south = Math.max(meta.bounds[1],  16.14);
+  const east  = Math.min(meta.bounds[2], -88.02);
+  const north = Math.min(meta.bounds[3],  18.34);
   return [[west, south], [east, north]];
 }
 
