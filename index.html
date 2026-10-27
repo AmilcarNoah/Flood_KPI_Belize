@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Belize Flood Story</title>
-<meta name="description" content="A 3D story map of flood hazard, population exposure and early-warning coverage in Belize." />
+<meta name="description" content="A 3D scrollytelling map of flood hazard, population exposure and early-warning coverage in Belize." />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css"
       integrity="sha512-qN/uDg9bS3IAldWq4lswyC+9ZSoShtfyNDp+FaJhdtXJqdgubHA+s4nB8BajW0m90Y0+RBGbqu2anzbxiQYdHA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 <link rel="stylesheet" href="css/styles.css" />
@@ -12,34 +12,20 @@
 <body>
 <div id="map"></div>
 
-<button id="open" class="iconbtn" title="Show story">☰</button>
 <div class="tools">
   <div id="basemaps" class="segmented">
-    <button data-base="satellite" class="on" title="Satellite">Satellite</button>
-    <button data-base="dark" title="Dark">Dark</button>
+    <button data-base="dark" class="on" title="Dark">Dark</button>
     <button data-base="light" title="Light">Light</button>
+    <button data-base="satellite" title="Satellite">Satellite</button>
   </div>
-  <button id="replay" class="iconbtn" title="Replay animation">⟳</button>
+  <button id="replay" class="iconbtn" title="Replay this scene">⟳</button>
 </div>
 
-<aside id="story">
-  <div class="brand">
-    <div class="kicker">Belize · Flood Risk</div>
-    <h1>When the rivers rise</h1>
-    <p>A data story: who lives where the water goes, and whether a warning can reach them in time. Built from WRI Aqueduct flood models and WorldPop, 100&nbsp;m grid.</p>
-  </div>
+<nav id="progress"></nav>
+<div id="tooltip"></div>
 
-  <div class="chaptitle"><span class="no" id="cno">01</span><h2 id="ctitle">—</h2></div>
-  <div class="narr" id="narr"></div>
-
-  <div class="rail" id="rail"></div>
-  <div class="nav">
-    <button id="prev">← Back</button>
-    <button id="next" class="primary">Next →</button>
-  </div>
-</aside>
-
-<div class="hint" id="hint">Drag to orbit · scroll to zoom</div>
+<!-- scroll-driven narrative; sections are built by app.js -->
+<main id="scrolly"></main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"
         integrity="sha512-dXgoFR02YHJ9Fa29P3D/1umNaZ0EXS2N0w29Lm3b/1BK8UDLMdLWDFwuujIyJJdU27/PLuk3dmS1V9NO8ABX1A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>

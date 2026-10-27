@@ -38,8 +38,10 @@ const RED_RAMP  = ramp(['#7c1d0a','#d44a1a','#f5873b','#ffd24a','#fff2c0','#ffff
 function peakLayers(id, data, maxVal, cramp, elevScale, coreR, glowR){
   const col = (v, a)=>{ const c = cramp(Math.pow(v/maxVal, 0.45)); return [c[0],c[1],c[2],a]; };
   const common = { data, diskResolution:20, extruded:true, radiusUnits:'meters',
-    elevationScale:elevScale, getPosition:d=>[d[0],d[1]], getElevation:d=>d[2]+40 };
-  const glow = new ColumnLayer({ ...common, id:id+'-glow', radius:glowR,
+    elevationScale:elevScale*rise, getPosition:d=>[d[0],d[1]], getElevation:d=>d[2]+40,
+    updateTriggers:{ getElevation: rise } };
+  // glow halo doubles as the (large, easy-to-hover) pick target for tooltips
+  const glow = new ColumnLayer({ ...common, id:id+'-glow', radius:glowR, pickable:true,
     getFillColor:d=>col(d[2], 34),
     parameters:{ depthTest:false, depthMask:false, blend:true,
       blendColorOperation:'add', blendColorSrcFactor:'src-alpha', blendColorDstFactor:'one',
@@ -52,8 +54,10 @@ function peakLayers(id, data, maxVal, cramp, elevScale, coreR, glowR){
 
 /* ---------- state ---------- */
 let map, overlay, meta, DATA = {}, time = 0, raf;
-let currentBase = 'satellite';
+let currentBase = 'dark';
 let current = 0;
+let rise = 1, rising = false, riseStart = 0;   // grow-in animation factor for peaks
+const easeOut = t => 1 - Math.pow(1 - t, 3);
 
 const CHAPTERS = [
   {
@@ -137,20 +141,30 @@ function buildLayers(){
         getLineColor:[59,209,196, 210*(1-prog)], updateTriggers:{getRadius:time, getLineColor:time} }));
     }
     L.push(new ScatterplotLayer({ id:'masts', data:DATA.masts, filled:true, radiusUnits:'pixels',
-      getPosition:d=>d, getRadius:3, getFillColor:[180,255,245,230] }));
+      pickable:true, getPosition:d=>d, getRadius:4, getFillColor:[180,255,245,230] }));
   }
   return L;
 }
 
-/* ---------- animation loop (only needed while a ping chapter is active) ---------- */
-function animate(){
-  time = performance.now();
-  if(CHAPTERS[current].layers.includes('ping')){
-    overlay.setProps({ layers: buildLayers() });
-    raf = requestAnimationFrame(animate);
+/* ---------- unified animation loop: grow-in of peaks + mast ping ---------- */
+function loop(){
+  const now = performance.now(); time = now;
+  if(rising){
+    const t = Math.min(1, (now - riseStart) / 900);
+    rise = 0.02 + 0.98 * easeOut(t);
+    if(t >= 1){ rising = false; rise = 1; }
   }
+  overlay.setProps({ layers: buildLayers() });
+  if(rising || CHAPTERS[current].layers.includes('ping')) raf = requestAnimationFrame(loop);
 }
-function startAnim(){ cancelAnimationFrame(raf); if(CHAPTERS[current].layers.includes('ping')) raf = requestAnimationFrame(animate); }
+// start a scene: peaks rise from the ground; keep looping if the chapter pings
+function startScene(){
+  cancelAnimationFrame(raf);
+  const hasPeaks = CHAPTERS[current].layers.some(l=>l==='pop'||l==='exposed');
+  if(hasPeaks){ rising = true; riseStart = performance.now(); rise = 0.02; }
+  else { rising = false; rise = 1; }
+  raf = requestAnimationFrame(loop);
+}
 
 /* ---------- glowing blue flood vectors (native MapLibre layers) ---------- */
 const FLOOD_IDS = ['flood-glow3','flood-glow2','flood-glow1','flood-fill','flood-edge'];
@@ -171,6 +185,49 @@ function addFloodLayers(){
   // crisp bright edge
   map.addLayer({ id:'flood-edge', type:'line', source:'flood', layout:{visibility:'none'},
     paint:{'line-color':'#cdeeff','line-width':1,'line-opacity':0.9} });
+  setupFloodHover();
+}
+
+// hover the flood to read its depth class (native MapLibre features)
+const DEPTH_CLASS = {1:['Shallow','0.15–0.25 m'],2:['Moderate','0.25–0.35 m'],3:['Deep','0.35–0.50 m'],4:['Very deep','≥ 0.50 m']};
+function setupFloodHover(){
+  const tip = document.getElementById('tooltip');
+  map.on('mousemove','flood-fill', e=>{
+    const f = e.features && e.features[0]; if(!f) return;
+    const c = DEPTH_CLASS[f.properties.cls] || ['Flood',''];
+    map.getCanvas().style.cursor = 'crosshair';
+    tip.innerHTML = `<div class="tv">${c[1]}</div><div class="tl">${c[0]} · flood depth</div>`;
+    tip.style.left = (e.originalEvent.clientX + 14) + 'px';
+    tip.style.top  = (e.originalEvent.clientY + 14) + 'px';
+    tip.classList.add('show'); tipOwner = 'flood';
+  });
+  map.on('mouseleave','flood-fill', ()=>{ map.getCanvas().style.cursor='';
+    if(tipOwner==='flood'){ tip.classList.remove('show'); tipOwner=null; } });
+}
+
+// deck.gl hover-to-inspect for the 3D peaks and masts -> styled #tooltip div
+function tooltipHTML(id, o){
+  const n = v => Math.round(v).toLocaleString();
+  if(id==='pop-glow')     return `<div class="tv">${n(o[2])}</div><div class="tl">residents · 1 km² cell</div>`;
+  if(id==='exposed-glow') return `<div class="tv" style="color:#ffb27a">${n(o[2])}</div><div class="tl">exposed · 500 m cell</div>`;
+  if(id==='masts')        return `<div class="tv">Telecom mast</div><div class="tl">~5 km alert reach</div>`;
+  return null;
+}
+let tipOwner = null;  // 'deck' | 'flood' — so the two hover sources don't fight
+function handleHover(info){
+  const tip = document.getElementById('tooltip');
+  if(info && info.object && info.layer){
+    const html = tooltipHTML(info.layer.id, info.object);
+    if(html){
+      tip.innerHTML = html;
+      tip.style.left = (info.x + 16) + 'px';
+      tip.style.top  = (info.y + 16) + 'px';
+      tip.classList.add('show'); tipOwner = 'deck';
+      if(map) map.getCanvas().style.cursor = 'pointer';
+      return;
+    }
+  }
+  if(tipOwner === 'deck'){ tip.classList.remove('show'); tipOwner = null; if(map) map.getCanvas().style.cursor=''; }
 }
 // mode: null = hidden, 'full' = glowing hero (ch2), 'base' = dim context under peaks (ch3)
 function setFloodVisible(mode){
@@ -190,13 +247,12 @@ function floodMode(ch){
 
 /* ---------- panel-aware padding so Belize is never hidden by the panel ---------- */
 function getPadding(){
-  const story = document.getElementById('story');
-  if(window.innerWidth <= 720){
-    const h = story ? Math.min(story.offsetHeight, window.innerHeight*0.55) : 320;
-    return { top:30, left:20, right:20, bottom:h+20 };
+  if(window.innerWidth <= 760){
+    return { top:40, left:24, right:24, bottom:Math.round(window.innerHeight*0.42) };
   }
-  const w = story ? story.offsetWidth : 384;
-  return { top:28, left:w+24, right:28, bottom:58 };
+  const w = document.getElementById('scrolly')?.offsetWidth || 470;
+  // the scrim fades out, so the usable centre sits a little left of the column edge
+  return { top:36, left:Math.round(w*0.82), right:40, bottom:64 };
 }
 
 /* ---------- per-chapter framing bounds ---------- */
@@ -237,33 +293,77 @@ function legendHTML(lg){
   return `<div class="legend">${inner}</div>`;
 }
 
-function goTo(i){
-  current = Math.max(0, Math.min(CHAPTERS.length-1, i));
-  const ch = CHAPTERS[current];
-  document.getElementById('cno').textContent = ch.no;
-  document.getElementById('ctitle').textContent = ch.title;
-  document.getElementById('narr').innerHTML = ch.narr + legendHTML(ch.legend);
-  document.querySelectorAll('.dot').forEach((d,idx)=>d.classList.toggle('on', idx<=current));
-  document.getElementById('prev').disabled = current===0;
-  document.getElementById('next').textContent = current===CHAPTERS.length-1 ? 'Restart ↺' : 'Next →';
+// activate a chapter's SCENE (camera + layers). The narrative lives in the
+// scrolling column; this only drives the map.
+function setChapter(i, force){
+  i = Math.max(0, Math.min(CHAPTERS.length-1, i));
+  if(i===current && !force && map) { /* fall through to re-render on force only */ }
+  current = i;
+  const ch = CHAPTERS[i];
+  document.querySelectorAll('#progress .pdot').forEach((d,idx)=>d.classList.toggle('on', idx===i));
 
-  // frame either the whole country or the focus data, inside the area NOT
-  // covered by the story panel
   const pad = getPadding();
   const bb = chapterBounds(ch);
-  // Fit the bounds FLAT (no pitch) so the country fills the free area exactly;
-  // passing pitch here makes maplibre zoom far out to keep the tilted top edge
-  // in view. Then apply a modest pitch, easing zoom out slightly to avoid the
-  // near edge spilling past the bottom.
+  // fit flat so the country fills the free area, then apply a modest pitch
   let cam = null;
   try { cam = map.cameraForBounds(bb, { padding: pad, bearing: ch.cam.bearing, maxZoom: 10 }); } catch(e){}
   const pitchEase = ch.cam.pitch >= 40 ? 0.5 : (ch.cam.pitch >= 25 ? 0.25 : 0.1);
   map.flyTo({ center: cam ? cam.center : meta.center, zoom: (cam ? cam.zoom : 7.0) - pitchEase,
               pitch: ch.cam.pitch, bearing: ch.cam.bearing,
-              padding: pad, duration: 1700, essential: true });
+              padding: pad, duration: 1600, essential: true });
   setFloodVisible(floodMode(ch));
-  overlay.setProps({ layers: buildLayers() });
-  startAnim();
+  startScene();
+}
+
+/* ---------- build the scrolling narrative + progress rail ---------- */
+function buildStory(){
+  const sc = document.getElementById('scrolly');
+  let html = `<section class="step intro active" data-ch="0"><div class="card hero">
+    <div class="kicker">Belize · Flood Risk</div>
+    <h1>When the rivers rise</h1>
+    <p>A data story about who lives where the water goes — and whether a warning can reach them in time.</p>
+    <div class="scrollhint"><span class="chev">↓</span> scroll to explore · hover the map to inspect</div>
+  </div></section>`;
+  CHAPTERS.forEach((ch,i)=>{
+    html += `<section class="step" data-ch="${i}"><div class="card">
+      <div class="chnum">CHAPTER ${ch.no}</div>
+      <h2>${ch.title}</h2>
+      <div class="body">${ch.narr}</div>
+      ${legendHTML(ch.legend)}
+    </div></section>`;
+  });
+  html += `<section class="step outro" data-ch="3"><div class="card">
+    <h2>Reading the risk</h2>
+    <div class="body">Hazard and people together. About <em>49,200</em> Belizeans live inside the
+      1-in-100-year flood footprint, and roughly <em>7,450</em> of them fall outside modelled
+      early-warning range — the gap this map is built to expose.</div>
+    <div class="src">Data: <b>WRI Aqueduct</b> riverine floods · <b>WorldPop 2025</b> ·
+      OpenStreetMap masts (5 km buffers in EPSG:32616).<br>Basemaps © OpenFreeMap / Esri.
+      Built from the Belize training notebooks.</div>
+  </div></section>`;
+  sc.innerHTML = html;
+
+  const pg = document.getElementById('progress');
+  pg.innerHTML = CHAPTERS.map((ch,i)=>`<div class="pdot" data-ch="${i}" data-label="${ch.no} · ${ch.title}"></div>`).join('');
+  pg.querySelectorAll('.pdot').forEach(d=> d.onclick = ()=>{
+    const s = sc.querySelector(`.step[data-ch="${d.dataset.ch}"]:not(.intro)`);
+    if(s) s.scrollIntoView({ behavior:'smooth' });
+  });
+}
+
+function setupObserver(){
+  const sc = document.getElementById('scrolly');
+  const steps = [...sc.querySelectorAll('.step')];
+  const io = new IntersectionObserver(entries=>{
+    entries.forEach(en=>{
+      if(en.isIntersecting && en.intersectionRatio >= 0.5){
+        steps.forEach(s=>s.classList.toggle('active', s===en.target));
+        const ch = +en.target.dataset.ch;
+        if(ch !== current) setChapter(ch);
+      }
+    });
+  }, { root:sc, threshold:[0.5] });
+  steps.forEach(s=>io.observe(s));
 }
 
 /* ---------- boot ---------- */
@@ -273,7 +373,7 @@ function boot(){
     center:[-88.37,17.19], zoom:7.4, pitch:30, bearing:-10, antialias:true, attributionControl:true
   });
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
-  overlay = new MapboxOverlay({ interleaved:true, layers:[] });
+  overlay = new MapboxOverlay({ interleaved:true, layers:[], onHover:handleHover, pickingRadius:8 });
   map.addControl(overlay);
 
   const mapReady = new Promise(res=>{ if(map.loaded()) res(); else map.once('load', res); });
@@ -290,17 +390,15 @@ function boot(){
     meta = m;
     DATA.pop = pop; DATA.exp = exp; DATA.masts = masts; DATA.coverage = cov; DATA.floodVec = flood;
     addFloodLayers();
-    // build chapter rail
-    const rail = document.getElementById('rail');
-    CHAPTERS.forEach((_,i)=>{ const d=document.createElement('div'); d.className='dot';
-      d.onclick=()=>goTo(i); rail.appendChild(d); });
-    goTo(0);
-    setTimeout(()=>{ const h=document.getElementById('hint'); if(h) h.style.opacity=0; }, 6000);
+    buildStory();
+    setupObserver();
+    setChapter(0, true);
   }).catch(err=>{
     console.error(err);
-    document.getElementById('narr').innerHTML =
-      '<p style="color:#e34a33">Could not load data. Serve this over <b>http</b> '+
-      '(a local server or GitHub Pages), not as a <code>file://</code> path.</p>';
+    document.getElementById('scrolly').innerHTML =
+      '<section class="step"><div class="card"><h2>Could not load data</h2>'+
+      '<div class="body">Serve this over <b>http</b> (a local server or GitHub Pages), '+
+      'not as a <code>file://</code> path.</div></div></section>';
   });
 }
 
@@ -318,17 +416,21 @@ function setBasemap(key){
   });
 }
 
+// scroll the narrative to a given chapter step
+function scrollToChapter(i){
+  i = Math.max(0, Math.min(CHAPTERS.length-1, i));
+  const s = document.querySelector(`#scrolly .step[data-ch="${i}"]:not(.intro)`);
+  if(s) s.scrollIntoView({ behavior:'smooth' });
+}
+
 /* ---------- controls ---------- */
 window.addEventListener('DOMContentLoaded', ()=>{
   boot();
-  document.getElementById('next').onclick = ()=> goTo(current===CHAPTERS.length-1 ? 0 : current+1);
-  document.getElementById('prev').onclick = ()=> goTo(current-1);
-  document.getElementById('replay').onclick = ()=> goTo(current);
-  document.getElementById('open').onclick = ()=> document.getElementById('story').classList.toggle('hidden');
+  document.getElementById('replay').onclick = ()=> setChapter(current, true);
   document.querySelectorAll('#basemaps button').forEach(b=> b.onclick = ()=> setBasemap(b.dataset.base));
   window.addEventListener('keydown', e=>{
-    if(e.key==='ArrowRight') goTo(current+1);
-    if(e.key==='ArrowLeft') goTo(current-1);
+    if(e.key==='ArrowDown' || e.key==='ArrowRight'){ e.preventDefault(); scrollToChapter(current+1); }
+    if(e.key==='ArrowUp'   || e.key==='ArrowLeft'){  e.preventDefault(); scrollToChapter(current-1); }
   });
-  let rz; window.addEventListener('resize', ()=>{ clearTimeout(rz); rz=setTimeout(()=>{ if(meta) goTo(current); }, 250); });
+  let rz; window.addEventListener('resize', ()=>{ clearTimeout(rz); rz=setTimeout(()=>{ if(meta) setChapter(current, true); }, 250); });
 });
