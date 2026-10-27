@@ -6,10 +6,23 @@ const { MapboxOverlay, ColumnLayer, ScatterplotLayer, GeoJsonLayer, BitmapLayer 
 /* ---------- keyless, CORS-enabled vector basemap (OpenFreeMap) ----------
    MapLibre fetches tiles with CORS; OpenFreeMap serves keyless styles with
    access-control-allow-origin:*, unlike Esri/CARTO raster endpoints. */
-const STYLE_URL = {
-  dark:  'https://tiles.openfreemap.org/styles/dark',
-  light: 'https://tiles.openfreemap.org/styles/positron'
+const BASEMAPS = {
+  dark:  { kind:'style', url:'https://tiles.openfreemap.org/styles/dark',     dark:true },
+  light: { kind:'style', url:'https://tiles.openfreemap.org/styles/positron',  dark:false },
+  satellite: { kind:'raster', dark:true,
+    tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+    attr:'Imagery © Esri, Maxar, Earthstar Geographics' },
+  google: { kind:'raster', dark:true,
+    tiles:['https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}','https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+           'https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}','https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'],
+    attr:'Imagery © Google' }
 };
+function basemapStyle(key){
+  const d = BASEMAPS[key];
+  if(d.kind==='style') return d.url;
+  return { version:8, sources:{ sat:{ type:'raster', tileSize:256, tiles:d.tiles, attribution:d.attr } },
+           layers:[{ id:'sat', type:'raster', source:'sat' }] };
+}
 
 /* ---------- color helpers ---------- */
 const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
@@ -18,10 +31,27 @@ function ramp(stops){ const c = stops.map(hex); return t => {
   const a = c[i], b = c[Math.min(i+1,c.length-1)];
   return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
 };}
-// neutral (population): brighter slate -> luminous white for prominent peaks
-const POP_RAMP = ramp(['#5a7290','#8fa8c4','#c3d6ea','#eef5fc','#ffffff']);
-// red severity (exposed people)
-const RED_RAMP = ramp(['#fdbba0','#fc8a6a','#ef5133','#c3161a','#7c0007']);
+// Kontur-style population peaks: dark teal (low) -> green -> yellow -> white (high)
+const PEAK_RAMP = ramp(['#0a2a3a','#0e6b7a','#1aa3a3','#5fcf7a','#c3e84b','#fbe94e','#fff4c2','#ffffff']);
+// exposed people: deep red -> orange -> amber -> white-hot ("alarm" peaks)
+const RED_RAMP  = ramp(['#7c1d0a','#d44a1a','#f5873b','#ffd24a','#fff2c0','#ffffff']);
+
+/* Build a pair of deck layers per dataset: a wide additive GLOW halo + a thin
+   bright CORE, giving the luminous Kontur "light-beam" spike look.            */
+function peakLayers(id, data, maxVal, cramp, elevScale, coreR, glowR){
+  const col = (v, a)=>{ const c = cramp(Math.pow(v/maxVal, 0.45)); return [c[0],c[1],c[2],a]; };
+  const common = { data, diskResolution:20, extruded:true, radiusUnits:'meters',
+    elevationScale:elevScale, getPosition:d=>[d[0],d[1]], getElevation:d=>d[2]+40 };
+  const glow = new ColumnLayer({ ...common, id:id+'-glow', radius:glowR,
+    getFillColor:d=>col(d[2], 34),
+    parameters:{ depthTest:false, depthMask:false, blend:true,
+      blendColorOperation:'add', blendColorSrcFactor:'src-alpha', blendColorDstFactor:'one',
+      blendAlphaOperation:'add', blendAlphaSrcFactor:'one', blendAlphaDstFactor:'one' } });
+  const core = new ColumnLayer({ ...common, id:id, radius:coreR,
+    getFillColor:d=>col(d[2], 255),
+    material:{ ambient:.85, diffuse:.25, shininess:50, specularColor:[255,255,255] } });
+  return [glow, core];
+}
 
 /* ---------- state ---------- */
 let map, overlay, meta, DATA = {}, time = 0, raf;
@@ -35,7 +65,7 @@ const CHAPTERS = [
     narr:`Belize is small and low-lying. These peaks are its people — each column a
       1&nbsp;km cell, its height the number of residents (WorldPop 2025).
       <span class="big">342,870</span><span class="sub">people nationally · tallest peaks are Belize City & the north</span>`,
-    legend:{type:'grad', colors:['#2c3a4d','#ffffff'], labels:['fewer','more people / km²'], ttl:'Population density'}
+    legend:{type:'grad', colors:['#0a2a3a','#1aa3a3','#c3e84b','#ffffff'], labels:['low','dense — people / km²'], ttl:'Population density'}
   },
   {
     no:'02', title:'Where the water goes', layers:['flood'],
@@ -79,20 +109,10 @@ function buildLayers(){
       getFillColor:[59,209,196,70], getLineColor:[59,209,196,180], lineWidthMinPixels:1 }));
   }
   if(vis.has('pop') && DATA.pop){
-    const m = meta.population.max;
-    L.push(new ColumnLayer({ id:'pop', data:DATA.pop, diskResolution:12, radius:540, extruded:true,
-      elevationScale:4.2, radiusUnits:'meters',
-      getPosition:d=>[d[0],d[1]], getElevation:d=>d[2]+60,   // +60 floor so small cells still read
-      getFillColor:d=>{ const c=POP_RAMP(Math.pow(d[2]/m, 0.4)); return [c[0],c[1],c[2],255]; },
-      material:{ambient:.7,diffuse:.65,shininess:24,specularColor:[255,255,255]} }));
+    L.push(...peakLayers('pop', DATA.pop, meta.population.max, PEAK_RAMP, 6.5, 130, 430));
   }
   if(vis.has('exposed') && DATA.exp){
-    const m = meta.exposed.max;
-    L.push(new ColumnLayer({ id:'exposed', data:DATA.exp, diskResolution:6, radius:470, extruded:true,
-      elevationScale:3.4, radiusUnits:'meters',
-      getPosition:d=>[d[0],d[1]], getElevation:d=>d[2],
-      getFillColor:d=>{ const c=RED_RAMP(Math.sqrt(d[2]/m)); return [c[0],c[1],c[2],248]; },
-      material:{ambient:.65,diffuse:.6,shininess:30,specularColor:[255,220,210]} }));
+    L.push(...peakLayers('exposed', DATA.exp, meta.exposed.max, RED_RAMP, 6.0, 150, 460));
   }
   if(vis.has('ping') && DATA.masts){
     // three expanding rings, phase-offset, for a continuous pulse
@@ -148,7 +168,7 @@ function legendHTML(lg){
   if(!lg) return '';
   let inner = `<div class="ttl">${lg.ttl}</div>`;
   if(lg.type==='grad'){
-    inner += `<div class="grad" style="background:linear-gradient(90deg,${lg.colors[0]},${lg.colors[1]})"></div>`+
+    inner += `<div class="grad" style="background:linear-gradient(90deg,${lg.colors.join(',')})"></div>`+
       `<div class="glabels"><span>${lg.labels[0]}</span><span>${lg.labels[1]}</span></div>`;
   } else {
     inner += lg.items.map(i=>`<div class="lrow"><span class="sw" style="background:${i.color}"></span>${i.label}</div>`).join('');
@@ -177,7 +197,7 @@ function goTo(i){
 /* ---------- boot ---------- */
 function boot(){
   map = new maplibregl.Map({
-    container:'map', style:STYLE_URL.dark,
+    container:'map', style:basemapStyle('dark'),
     center:[-88.37,17.19], zoom:7.6, pitch:50, bearing:-18, antialias:true, attributionControl:true
   });
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
@@ -212,6 +232,21 @@ function boot(){
   });
 }
 
+/* ---------- basemap switching ---------- */
+let currentBase = 'dark';
+function setBasemap(key){
+  if(key===currentBase) return;
+  currentBase = key;
+  document.documentElement.setAttribute('data-theme', BASEMAPS[key].dark ? 'dark' : 'light');
+  document.querySelectorAll('#basemaps button').forEach(b=>b.classList.toggle('on', b.dataset.base===key));
+  map.setStyle(basemapStyle(key));
+  map.once('styledata', ()=>{
+    addFloodLayers();
+    setFloodVisible(CHAPTERS[current].layers.includes('flood'));
+    overlay.setProps({ layers: buildLayers() });
+  });
+}
+
 /* ---------- controls ---------- */
 window.addEventListener('DOMContentLoaded', ()=>{
   boot();
@@ -219,16 +254,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('prev').onclick = ()=> goTo(current-1);
   document.getElementById('replay').onclick = ()=> goTo(current);
   document.getElementById('open').onclick = ()=> document.getElementById('story').classList.toggle('hidden');
-  document.getElementById('theme').onclick = ()=>{
-    theme = theme==='dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', theme);
-    map.setStyle(STYLE_URL[theme]);
-    map.once('styledata', ()=>{
-      addFloodLayers();
-      setFloodVisible(CHAPTERS[current].layers.includes('flood'));
-      overlay.setProps({ layers: buildLayers() });
-    });
-  };
+  document.querySelectorAll('#basemaps button').forEach(b=> b.onclick = ()=> setBasemap(b.dataset.base));
   window.addEventListener('keydown', e=>{
     if(e.key==='ArrowRight') goTo(current+1);
     if(e.key==='ArrowLeft') goTo(current-1);

@@ -53,7 +53,15 @@ canvas{outline:none}
 .nav button:disabled{opacity:.4;cursor:default}
 
 /* floating controls */
-.tools{position:absolute;top:16px;right:16px;z-index:6;display:flex;gap:8px}
+.tools{position:absolute;top:16px;right:16px;z-index:6;display:flex;gap:8px;align-items:center}
+.segmented{display:flex;background:var(--panel);backdrop-filter:blur(10px);border:1px solid var(--line);
+  border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+.segmented button{border:0;background:transparent;color:var(--muted);font-size:12px;font-weight:600;
+  padding:9px 12px;cursor:pointer;transition:.15s;border-right:1px solid var(--line)}
+.segmented button:last-child{border-right:0}
+.segmented button:hover{color:var(--ink);background:rgba(255,255,255,.07)}
+.segmented button.on{background:var(--accent);color:#06211f}
+:root[data-theme="light"] .segmented button.on{color:#fff}
 .iconbtn{width:40px;height:40px;border-radius:12px;border:1px solid var(--line);background:var(--panel);
   backdrop-filter:blur(10px);color:var(--ink);box-shadow:var(--shadow);cursor:pointer;font-size:16px;display:grid;place-items:center}
 .iconbtn:hover{background:rgba(255,255,255,.12)}
