@@ -54,6 +54,19 @@ function peakLayers(id, data, maxVal, cramp, elevScale, coreR, glowR){
 
 /* ---------- state ---------- */
 let map, overlay, meta, DATA = {}, time = 0, raf;
+let BZ_BOUNDS = null;   // [[w,s],[e,n]] full Belize extent from belize_boundary.geojson
+
+/* walk any GeoJSON geometry and return its bounding box as [[w,s],[e,n]] */
+function geojsonBounds(gj){
+  let w=1e9,s=1e9,e=-1e9,n=-1e9;
+  const walk = c => {
+    if(typeof c[0]==='number'){ w=Math.min(w,c[0]); e=Math.max(e,c[0]); s=Math.min(s,c[1]); n=Math.max(n,c[1]); }
+    else c.forEach(walk);
+  };
+  const feats = gj.features || [gj];
+  feats.forEach(f => walk((f.geometry||f).coordinates));
+  return [[w,s],[e,n]];
+}
 let currentBase = 'dark';
 let current = 0;
 let rise = 1, rising = false, riseStart = 0;   // grow-in animation factor for peaks
@@ -263,13 +276,14 @@ function chapterBounds(ch){
     const m=0.06;
     return [[w-m,s-m],[e+m,n+m]];
   }
-  // trim all edges inward (open sea / outer cayes to the east, sparse corners
-  // elsewhere) so the mainland centres, fills the free area and frames closer
-  const west  = Math.max(meta.bounds[0], -89.06);
-  const south = Math.max(meta.bounds[1],  16.14);
-  const east  = Math.min(meta.bounds[2], -88.02);
-  const north = Math.min(meta.bounds[3],  18.34);
-  return [[west, south], [east, north]];
+  // frame the true full extent of Belize from the official boundary, with a
+  // small margin so the coastline/cayes are not flush against the pane edge
+  if(BZ_BOUNDS){
+    const m = 0.04;
+    return [[BZ_BOUNDS[0][0]-m, BZ_BOUNDS[0][1]-m], [BZ_BOUNDS[1][0]+m, BZ_BOUNDS[1][1]+m]];
+  }
+  // fallback (boundary not yet loaded): country bounds from the population raster
+  return [[meta.bounds[0], meta.bounds[1]], [meta.bounds[2], meta.bounds[3]]];
 }
 
 /* ---------- chapter rendering ---------- */
@@ -388,10 +402,12 @@ function boot(){
     fetch('data/exposed_points.json').then(r=>r.json()),
     fetch('data/masts.json').then(r=>r.json()),
     fetch('data/mast_coverage.geojson').then(r=>r.json()),
-    fetch('data/flood_vectors.geojson').then(r=>r.json())
-  ]).then(([_,m,pop,exp,masts,cov,flood])=>{
+    fetch('data/flood_vectors.geojson').then(r=>r.json()),
+    fetch('data/belize_boundary.geojson').then(r=>r.json())
+  ]).then(([_,m,pop,exp,masts,cov,flood,bnd])=>{
     meta = m;
     DATA.pop = pop; DATA.exp = exp; DATA.masts = masts; DATA.coverage = cov; DATA.floodVec = flood;
+    DATA.boundary = bnd; BZ_BOUNDS = geojsonBounds(bnd);
     addFloodLayers();
     buildStory();
     setupObserver();
