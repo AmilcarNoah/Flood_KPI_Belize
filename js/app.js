@@ -6,14 +6,20 @@ const { MapboxOverlay, ColumnLayer, ScatterplotLayer, GeoJsonLayer, BitmapLayer 
 /* ---------- keyless, CORS-enabled vector basemap (OpenFreeMap) ----------
    MapLibre fetches tiles with CORS; OpenFreeMap serves keyless styles with
    access-control-allow-origin:*, unlike Esri/CARTO raster endpoints. */
-// Esri World Imagery (keyless, CORS-enabled) as the single basemap.
-const SAT_STYLE = {
-  version:8,
-  sources:{ sat:{ type:'raster', tileSize:256,
+// Basemaps (all keyless, CORS-enabled). Satellite = Esri World Imagery.
+const BASEMAPS = {
+  satellite:{ kind:'raster', dark:true,
     tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-    attribution:'Imagery © Esri, Maxar, Earthstar Geographics · WRI Aqueduct · WorldPop' } },
-  layers:[{ id:'sat', type:'raster', source:'sat' }]
+    attr:'Imagery © Esri, Maxar, Earthstar Geographics · WRI Aqueduct · WorldPop' },
+  dark:{  kind:'style', url:'https://tiles.openfreemap.org/styles/dark',     dark:true },
+  light:{ kind:'style', url:'https://tiles.openfreemap.org/styles/positron',  dark:false }
 };
+function basemapStyle(key){
+  const d = BASEMAPS[key];
+  if(d.kind==='style') return d.url;
+  return { version:8, sources:{ sat:{ type:'raster', tileSize:256, tiles:d.tiles, attribution:d.attr } },
+           layers:[{ id:'sat', type:'raster', source:'sat' }] };
+}
 
 /* ---------- color helpers ---------- */
 const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
@@ -46,13 +52,13 @@ function peakLayers(id, data, maxVal, cramp, elevScale, coreR, glowR){
 
 /* ---------- state ---------- */
 let map, overlay, meta, DATA = {}, time = 0, raf;
-let theme = 'dark';
+let currentBase = 'satellite';
 let current = 0;
 
 const CHAPTERS = [
   {
     no:'01', title:'The land & its people', layers:['pop'],
-    cam:{ pitch:40, bearing:-12 },
+    cam:{ pitch:32, bearing:-10 },
     narr:`Belize is small and low-lying. These peaks are its people — each column a
       1&nbsp;km cell, its height the number of residents (WorldPop 2025).
       <span class="big">342,870</span><span class="sub">people nationally · tallest peaks are Belize City & the north</span>`,
@@ -60,7 +66,7 @@ const CHAPTERS = [
   },
   {
     no:'02', title:'Where the water goes', layers:['flood'],
-    cam:{ pitch:28, bearing:-8 },
+    cam:{ pitch:22, bearing:-6 },
     narr:`Modelled riverine flooding for a 1-in-100-year event (WRI Aqueduct).
       Deeper, darker blues mean more severe inundation — the river valleys and the
       low coastal plain take the worst of it.
@@ -77,7 +83,7 @@ const CHAPTERS = [
   },
   {
     no:'04', title:'Can the warning reach them?', layers:['coverage','ping','exposed'],
-    cam:{ pitch:42, bearing:-14 },
+    cam:{ pitch:34, bearing:-10 },
     narr:`Each telecom mast can carry an alert about 5&nbsp;km (buffered in UTM&nbsp;16N
       for true distance). Watch the signal pulse outward. Where the pulse never
       reaches the red peaks, people are flooded <em>and</em> unwarned.
@@ -181,7 +187,7 @@ function getPadding(){
     return { top:30, left:20, right:20, bottom:h+20 };
   }
   const w = story ? story.offsetWidth : 384;
-  return { top:50, left:w+30, right:50, bottom:50 };
+  return { top:28, left:w+24, right:28, bottom:58 };
 }
 
 /* ---------- per-chapter framing bounds ---------- */
@@ -192,7 +198,10 @@ function chapterBounds(ch){
     const m=0.06;
     return [[w-m,s-m],[e+m,n+m]];
   }
-  return [[meta.bounds[0], meta.bounds[1]], [meta.bounds[2], meta.bounds[3]]];
+  // trim the eastern edge (open sea / outer cayes) so the mainland centres and
+  // fills the free area rather than sitting off to one side
+  const east = Math.min(meta.bounds[2], -87.80);
+  return [[meta.bounds[0], meta.bounds[1]], [east, meta.bounds[3]]];
 }
 
 /* ---------- chapter rendering ---------- */
@@ -222,9 +231,14 @@ function goTo(i){
   // covered by the story panel
   const pad = getPadding();
   const bb = chapterBounds(ch);
+  // Fit the bounds FLAT (no pitch) so the country fills the free area exactly;
+  // passing pitch here makes maplibre zoom far out to keep the tilted top edge
+  // in view. Then apply a modest pitch, easing zoom out slightly to avoid the
+  // near edge spilling past the bottom.
   let cam = null;
-  try { cam = map.cameraForBounds(bb, { padding: pad, bearing: ch.cam.bearing, pitch: ch.cam.pitch, maxZoom: 8.6 }); } catch(e){}
-  map.flyTo({ center: cam ? cam.center : meta.center, zoom: (cam ? cam.zoom : 7.0) - 0.15,
+  try { cam = map.cameraForBounds(bb, { padding: pad, bearing: ch.cam.bearing, maxZoom: 10 }); } catch(e){}
+  const pitchEase = ch.cam.pitch >= 40 ? 0.5 : (ch.cam.pitch >= 25 ? 0.25 : 0.1);
+  map.flyTo({ center: cam ? cam.center : meta.center, zoom: (cam ? cam.zoom : 7.0) - pitchEase,
               pitch: ch.cam.pitch, bearing: ch.cam.bearing,
               padding: pad, duration: 1700, essential: true });
   setFloodVisible(floodMode(ch));
@@ -235,8 +249,8 @@ function goTo(i){
 /* ---------- boot ---------- */
 function boot(){
   map = new maplibregl.Map({
-    container:'map', style:SAT_STYLE,
-    center:[-88.37,17.19], zoom:7.4, pitch:48, bearing:-14, antialias:true, attributionControl:true
+    container:'map', style:basemapStyle(currentBase),
+    center:[-88.37,17.19], zoom:7.4, pitch:30, bearing:-10, antialias:true, attributionControl:true
   });
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
   overlay = new MapboxOverlay({ interleaved:true, layers:[] });
@@ -270,6 +284,20 @@ function boot(){
   });
 }
 
+/* ---------- basemap switching ---------- */
+function setBasemap(key){
+  if(key===currentBase) return;
+  currentBase = key;
+  document.documentElement.setAttribute('data-theme', BASEMAPS[key].dark ? 'dark' : 'light');
+  document.querySelectorAll('#basemaps button').forEach(b=>b.classList.toggle('on', b.dataset.base===key));
+  map.setStyle(basemapStyle(key));
+  map.once('styledata', ()=>{
+    addFloodLayers();
+    setFloodVisible(floodMode(CHAPTERS[current]));
+    overlay.setProps({ layers: buildLayers() });
+  });
+}
+
 /* ---------- controls ---------- */
 window.addEventListener('DOMContentLoaded', ()=>{
   boot();
@@ -277,6 +305,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('prev').onclick = ()=> goTo(current-1);
   document.getElementById('replay').onclick = ()=> goTo(current);
   document.getElementById('open').onclick = ()=> document.getElementById('story').classList.toggle('hidden');
+  document.querySelectorAll('#basemaps button').forEach(b=> b.onclick = ()=> setBasemap(b.dataset.base));
   window.addEventListener('keydown', e=>{
     if(e.key==='ArrowRight') goTo(current+1);
     if(e.key==='ArrowLeft') goTo(current-1);
