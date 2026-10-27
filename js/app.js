@@ -62,7 +62,9 @@ const CHAPTERS = [
     narr:`Belize is small and low-lying. These peaks are its people — each column a
       1&nbsp;km cell, its height the number of residents (WorldPop 2025).
       <span class="big">342,870</span><span class="sub">people nationally · tallest peaks are Belize City & the north</span>`,
-    legend:{type:'grad', colors:['#0a2a3a','#1aa3a3','#c3e84b','#ffffff'], labels:['low','dense — people / km²'], ttl:'Population density'}
+    legend:{type:'peaks', colors:['#0e6b7a','#1aa3a3','#5fcf7a','#c3e84b','#fbe94e','#ffffff'],
+      labels:['low','dense'], ttl:'Population peaks',
+      caption:'Spike <b>height</b> &amp; <b>colour</b> = residents per 1&nbsp;km² cell (WorldPop 2025).'}
   },
   {
     no:'02', title:'Where the water goes', layers:['flood'],
@@ -71,7 +73,12 @@ const CHAPTERS = [
       Deeper, darker blues mean more severe inundation — the river valleys and the
       low coastal plain take the worst of it.
       <span class="big">≥ 0.15 m</span><span class="sub">flood depth shown · fading blues scale with severity</span>`,
-    legend:{type:'grad', colors:['#4ba3d6','#08306b'], labels:['shallow','severe'], ttl:'Flood depth / severity'}
+    legend:{type:'cat', ttl:'Flood depth (WRI Aqueduct)', items:[
+        {color:'#4ba3d6', label:'Shallow',   range:'0.15–0.25 m'},
+        {color:'#2171b5', label:'Moderate',  range:'0.25–0.35 m'},
+        {color:'#08519c', label:'Deep',      range:'0.35–0.50 m'},
+        {color:'#08306b', label:'Very deep', range:'≥ 0.50 m'}],
+      caption:'Modelled inundation depth per 100&nbsp;m cell, 1-in-100-yr riverine flood.'}
   },
   {
     no:'03', title:'People in the water', layers:['flood','exposed'], fit:'exposed',
@@ -79,7 +86,9 @@ const CHAPTERS = [
     narr:`Overlay the people on the flood. These red peaks are residents standing
       inside the 100-year footprint — exposure, not just hazard.
       <span class="big">~49,200</span><span class="sub">people exposed · about 1 in 7 Belizeans</span>`,
-    legend:{type:'grad', colors:['#fdbba0','#7c0007'], labels:['few','many exposed'], ttl:'Exposed population / km²'}
+    legend:{type:'peaks', colors:['#7c1d0a','#d44a1a','#f5873b','#ffd24a','#fff2c0','#ffffff'],
+      labels:['few','many'], ttl:'Exposed population peaks',
+      caption:'Spike <b>height</b> &amp; <b>colour</b> = flood-exposed residents per 500&nbsp;m cell. Blue = flood extent.'}
   },
   {
     no:'04', title:'Can the warning reach them?', layers:['coverage','ping','exposed'],
@@ -208,11 +217,22 @@ function chapterBounds(ch){
 function legendHTML(lg){
   if(!lg) return '';
   let inner = `<div class="ttl">${lg.ttl}</div>`;
-  if(lg.type==='grad'){
+  if(lg.type==='peaks'){
+    // mini spikes rising left→right, coloured along the ramp: shows that both
+    // HEIGHT and COLOUR encode the value
+    const hs = [8,15,23,33,44,50];
+    const bars = lg.colors.map((c,i)=>`<span style="height:${hs[i]||50}px;background:${c}"></span>`).join('');
+    inner += `<div class="peaks-bars">${bars}</div>`+
+      `<div class="glabels"><span>${lg.labels[0]}</span><span>${lg.labels[1]}</span></div>`;
+    if(lg.caption) inner += `<div class="leg-cap">${lg.caption}</div>`;
+  } else if(lg.type==='grad'){
     inner += `<div class="grad" style="background:linear-gradient(90deg,${lg.colors.join(',')})"></div>`+
       `<div class="glabels"><span>${lg.labels[0]}</span><span>${lg.labels[1]}</span></div>`;
+    if(lg.caption) inner += `<div class="leg-cap">${lg.caption}</div>`;
   } else {
-    inner += lg.items.map(i=>`<div class="lrow"><span class="sw" style="background:${i.color}"></span>${i.label}</div>`).join('');
+    inner += lg.items.map(i=>`<div class="lrow"><span class="sw" style="background:${i.color}"></span>`+
+      `${i.label}${i.range?`<span class="rng">${i.range}</span>`:''}</div>`).join('');
+    if(lg.caption) inner += `<div class="leg-cap">${lg.caption}</div>`;
   }
   return `<div class="legend">${inner}</div>`;
 }
