@@ -55,8 +55,8 @@ def red_overlay(path, out_png, pct=96):
         b = transform_bounds(dst, "EPSG:4326", *rasterio.transform.array_bounds(h, w, tr))
     valid = np.isfinite(data) & (data > 0.15)         # >=15 cm depth
     vmax = np.nanpercentile(data[valid], pct) if valid.any() else 1
-    # fully red severity ramp: light red (shallow) -> dark crimson (severe)
-    reds = LinearSegmentedColormap.from_list("sev", ["#fcbba1", "#fc8d59", "#e34a33", "#b30000", "#67000d"])
+    # blue severity ramp: pale blue (shallow) -> deep navy (severe)
+    reds = LinearSegmentedColormap.from_list("sev", ["#d6e6f4", "#9ecae1", "#4292c6", "#08519c", "#08306b"])
     rgba = np.zeros((data.shape[0], data.shape[1], 4), dtype="uint8")
     if valid.any():
         normed = PowerNorm(0.7, vmin=0.15, vmax=vmax)(np.ma.masked_array(data, ~valid))

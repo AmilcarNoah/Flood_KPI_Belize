@@ -18,8 +18,8 @@ function ramp(stops){ const c = stops.map(hex); return t => {
   const a = c[i], b = c[Math.min(i+1,c.length-1)];
   return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
 };}
-// neutral (population): slate -> pale ice
-const POP_RAMP = ramp(['#2c3a4d','#5a6f86','#9fb2c6','#dfe8f2','#ffffff']);
+// neutral (population): brighter slate -> luminous white for prominent peaks
+const POP_RAMP = ramp(['#5a7290','#8fa8c4','#c3d6ea','#eef5fc','#ffffff']);
 // red severity (exposed people)
 const RED_RAMP = ramp(['#fdbba0','#fc8a6a','#ef5133','#c3161a','#7c0007']);
 
@@ -41,10 +41,10 @@ const CHAPTERS = [
     no:'02', title:'Where the water goes', layers:['flood'],
     cam:{ pitch:40, bearing:-8, zoom:8.3 },
     narr:`Modelled riverine flooding for a 1-in-100-year event (WRI Aqueduct).
-      Deeper, darker reds mean more severe inundation — the river valleys and the
+      Deeper, darker blues mean more severe inundation — the river valleys and the
       low coastal plain take the worst of it.
-      <span class="big">≥ 0.15 m</span><span class="sub">flood depth shown · fading reds scale with severity</span>`,
-    legend:{type:'grad', colors:['#fcbba1','#67000d'], labels:['shallow','severe'], ttl:'Flood depth / severity'}
+      <span class="big">≥ 0.15 m</span><span class="sub">flood depth shown · fading blues scale with severity</span>`,
+    legend:{type:'grad', colors:['#d6e6f4','#08306b'], labels:['shallow','severe'], ttl:'Flood depth / severity'}
   },
   {
     no:'03', title:'People in the water', layers:['flood','exposed'],
@@ -83,11 +83,11 @@ function buildLayers(){
   }
   if(vis.has('pop') && DATA.pop){
     const m = meta.population.max;
-    L.push(new ColumnLayer({ id:'pop', data:DATA.pop, diskResolution:6, radius:460, extruded:true,
-      elevationScale:2.2, radiusUnits:'meters',
-      getPosition:d=>[d[0],d[1]], getElevation:d=>d[2],
-      getFillColor:d=>{ const c=POP_RAMP(Math.sqrt(d[2]/m)); return [c[0],c[1],c[2],235]; },
-      material:{ambient:.6,diffuse:.6,shininess:20,specularColor:[255,255,255]} }));
+    L.push(new ColumnLayer({ id:'pop', data:DATA.pop, diskResolution:12, radius:540, extruded:true,
+      elevationScale:4.2, radiusUnits:'meters',
+      getPosition:d=>[d[0],d[1]], getElevation:d=>d[2]+60,   // +60 floor so small cells still read
+      getFillColor:d=>{ const c=POP_RAMP(Math.pow(d[2]/m, 0.4)); return [c[0],c[1],c[2],255]; },
+      material:{ambient:.7,diffuse:.65,shininess:24,specularColor:[255,255,255]} }));
   }
   if(vis.has('exposed') && DATA.exp){
     const m = meta.exposed.max;
@@ -100,7 +100,7 @@ function buildLayers(){
   if(vis.has('ping') && DATA.masts){
     // three expanding rings, phase-offset, for a continuous pulse
     for(let k=0;k<3;k++){
-      const prog = ((time/2600) + k/3) % 1;             // 0..1
+      const prog = ((time/5200) + k/3) % 1;             // 0..1 (slower pulse)
       L.push(new ScatterplotLayer({ id:'ping'+k, data:DATA.masts,
         stroked:true, filled:false, radiusUnits:'meters',
         getPosition:d=>d, getRadius:prog*5000, lineWidthMinPixels:1.5,
