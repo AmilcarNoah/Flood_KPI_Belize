@@ -6,23 +6,14 @@ const { MapboxOverlay, ColumnLayer, ScatterplotLayer, GeoJsonLayer, BitmapLayer 
 /* ---------- keyless, CORS-enabled vector basemap (OpenFreeMap) ----------
    MapLibre fetches tiles with CORS; OpenFreeMap serves keyless styles with
    access-control-allow-origin:*, unlike Esri/CARTO raster endpoints. */
-const BASEMAPS = {
-  dark:  { kind:'style', url:'https://tiles.openfreemap.org/styles/dark',     dark:true },
-  light: { kind:'style', url:'https://tiles.openfreemap.org/styles/positron',  dark:false },
-  satellite: { kind:'raster', dark:true,
+// Esri World Imagery (keyless, CORS-enabled) as the single basemap.
+const SAT_STYLE = {
+  version:8,
+  sources:{ sat:{ type:'raster', tileSize:256,
     tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-    attr:'Imagery © Esri, Maxar, Earthstar Geographics' },
-  google: { kind:'raster', dark:true,
-    tiles:['https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}','https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-           'https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}','https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'],
-    attr:'Imagery © Google' }
+    attribution:'Imagery © Esri, Maxar, Earthstar Geographics · WRI Aqueduct · WorldPop' } },
+  layers:[{ id:'sat', type:'raster', source:'sat' }]
 };
-function basemapStyle(key){
-  const d = BASEMAPS[key];
-  if(d.kind==='style') return d.url;
-  return { version:8, sources:{ sat:{ type:'raster', tileSize:256, tiles:d.tiles, attribution:d.attr } },
-           layers:[{ id:'sat', type:'raster', source:'sat' }] };
-}
 
 /* ---------- color helpers ---------- */
 const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
@@ -61,7 +52,7 @@ let current = 0;
 const CHAPTERS = [
   {
     no:'01', title:'The land & its people', layers:['pop'],
-    cam:{ pitch:58, bearing:-18, zoom:8.2 },
+    cam:{ pitch:40, bearing:-12 },
     narr:`Belize is small and low-lying. These peaks are its people — each column a
       1&nbsp;km cell, its height the number of residents (WorldPop 2025).
       <span class="big">342,870</span><span class="sub">people nationally · tallest peaks are Belize City & the north</span>`,
@@ -69,7 +60,7 @@ const CHAPTERS = [
   },
   {
     no:'02', title:'Where the water goes', layers:['flood'],
-    cam:{ pitch:40, bearing:-8, zoom:8.3 },
+    cam:{ pitch:28, bearing:-8 },
     narr:`Modelled riverine flooding for a 1-in-100-year event (WRI Aqueduct).
       Deeper, darker blues mean more severe inundation — the river valleys and the
       low coastal plain take the worst of it.
@@ -77,8 +68,8 @@ const CHAPTERS = [
     legend:{type:'grad', colors:['#4ba3d6','#08306b'], labels:['shallow','severe'], ttl:'Flood depth / severity'}
   },
   {
-    no:'03', title:'People in the water', layers:['flood','exposed'],
-    cam:{ pitch:58, bearing:-18, zoom:8.4 },
+    no:'03', title:'People in the water', layers:['flood','exposed'], fit:'exposed',
+    cam:{ pitch:46, bearing:-12 },
     narr:`Overlay the people on the flood. These red peaks are residents standing
       inside the 100-year footprint — exposure, not just hazard.
       <span class="big">~49,200</span><span class="sub">people exposed · about 1 in 7 Belizeans</span>`,
@@ -86,7 +77,7 @@ const CHAPTERS = [
   },
   {
     no:'04', title:'Can the warning reach them?', layers:['coverage','ping','exposed'],
-    cam:{ pitch:50, bearing:-18, zoom:8.4 },
+    cam:{ pitch:42, bearing:-14 },
     narr:`Each telecom mast can carry an alert about 5&nbsp;km (buffered in UTM&nbsp;16N
       for true distance). Watch the signal pulse outward. Where the pulse never
       reaches the red peaks, people are flooded <em>and</em> unwarned.
@@ -112,7 +103,14 @@ function buildLayers(){
     L.push(...peakLayers('pop', DATA.pop, meta.population.max, PEAK_RAMP, 6.5, 130, 430));
   }
   if(vis.has('exposed') && DATA.exp){
-    L.push(...peakLayers('exposed', DATA.exp, meta.exposed.max, RED_RAMP, 6.0, 150, 460));
+    const m = meta.exposed.max;
+    // soft additive ground footprint connects the spikes into a readable field
+    L.push(new ScatterplotLayer({ id:'exp-foot', data:DATA.exp, radiusUnits:'meters',
+      getPosition:d=>[d[0],d[1]], getRadius:320,
+      getFillColor:d=>{ const c=RED_RAMP(Math.pow(d[2]/m,0.4)); return [c[0],c[1],c[2],40]; },
+      parameters:{ depthTest:false, blend:true, blendColorOperation:'add',
+        blendColorSrcFactor:'src-alpha', blendColorDstFactor:'one' } }));
+    L.push(...peakLayers('exposed', DATA.exp, m, RED_RAMP, 14.0, 150, 340));
   }
   if(vis.has('ping') && DATA.masts){
     // three expanding rings, phase-offset, for a continuous pulse
@@ -159,8 +157,42 @@ function addFloodLayers(){
   map.addLayer({ id:'flood-edge', type:'line', source:'flood', layout:{visibility:'none'},
     paint:{'line-color':'#cdeeff','line-width':1,'line-opacity':0.9} });
 }
-function setFloodVisible(v){
-  FLOOD_IDS.forEach(id=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility', v?'visible':'none'); });
+// mode: null = hidden, 'full' = glowing hero (ch2), 'base' = dim context under peaks (ch3)
+function setFloodVisible(mode){
+  const show = !!mode, glow = mode==='full';
+  const vis = (id,on)=>{ if(map.getLayer(id)) map.setLayoutProperty(id,'visibility', on?'visible':'none'); };
+  const paint = (id,p,val)=>{ if(map.getLayer(id)) map.setPaintProperty(id,p,val); };
+  vis('flood-glow3', glow); vis('flood-glow2', glow); vis('flood-glow1', glow);
+  vis('flood-fill', show);  vis('flood-edge', show);
+  paint('flood-fill','fill-opacity', mode==='base' ? 0.30 : 0.62);
+  paint('flood-edge','line-opacity', mode==='base' ? 0.35 : 0.9);
+  paint('flood-edge','line-color', mode==='base' ? '#7fb8e0' : '#cdeeff');
+}
+function floodMode(ch){
+  if(!ch.layers.includes('flood')) return null;
+  return ch.layers.includes('exposed') ? 'base' : 'full';
+}
+
+/* ---------- panel-aware padding so Belize is never hidden by the panel ---------- */
+function getPadding(){
+  const story = document.getElementById('story');
+  if(window.innerWidth <= 720){
+    const h = story ? Math.min(story.offsetHeight, window.innerHeight*0.55) : 320;
+    return { top:30, left:20, right:20, bottom:h+20 };
+  }
+  const w = story ? story.offsetWidth : 384;
+  return { top:50, left:w+30, right:50, bottom:50 };
+}
+
+/* ---------- per-chapter framing bounds ---------- */
+function chapterBounds(ch){
+  if(ch.fit==='exposed' && DATA.exp && DATA.exp.length){
+    let w=1e9,s=1e9,e=-1e9,n=-1e9;
+    for(const d of DATA.exp){ w=Math.min(w,d[0]); e=Math.max(e,d[0]); s=Math.min(s,d[1]); n=Math.max(n,d[1]); }
+    const m=0.06;
+    return [[w-m,s-m],[e+m,n+m]];
+  }
+  return [[meta.bounds[0], meta.bounds[1]], [meta.bounds[2], meta.bounds[3]]];
 }
 
 /* ---------- chapter rendering ---------- */
@@ -186,10 +218,16 @@ function goTo(i){
   document.getElementById('prev').disabled = current===0;
   document.getElementById('next').textContent = current===CHAPTERS.length-1 ? 'Restart ↺' : 'Next →';
 
-  const c = meta.center;
-  map.flyTo({ center:c, zoom:ch.cam.zoom, pitch:ch.cam.pitch, bearing:ch.cam.bearing,
-              duration:1800, essential:true });
-  setFloodVisible(ch.layers.includes('flood'));
+  // frame either the whole country or the focus data, inside the area NOT
+  // covered by the story panel
+  const pad = getPadding();
+  const bb = chapterBounds(ch);
+  let cam = null;
+  try { cam = map.cameraForBounds(bb, { padding: pad, bearing: ch.cam.bearing, pitch: ch.cam.pitch, maxZoom: 8.6 }); } catch(e){}
+  map.flyTo({ center: cam ? cam.center : meta.center, zoom: (cam ? cam.zoom : 7.0) - 0.15,
+              pitch: ch.cam.pitch, bearing: ch.cam.bearing,
+              padding: pad, duration: 1700, essential: true });
+  setFloodVisible(floodMode(ch));
   overlay.setProps({ layers: buildLayers() });
   startAnim();
 }
@@ -197,8 +235,8 @@ function goTo(i){
 /* ---------- boot ---------- */
 function boot(){
   map = new maplibregl.Map({
-    container:'map', style:basemapStyle('dark'),
-    center:[-88.37,17.19], zoom:7.6, pitch:50, bearing:-18, antialias:true, attributionControl:true
+    container:'map', style:SAT_STYLE,
+    center:[-88.37,17.19], zoom:7.4, pitch:48, bearing:-14, antialias:true, attributionControl:true
   });
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-right');
   overlay = new MapboxOverlay({ interleaved:true, layers:[] });
@@ -232,21 +270,6 @@ function boot(){
   });
 }
 
-/* ---------- basemap switching ---------- */
-let currentBase = 'dark';
-function setBasemap(key){
-  if(key===currentBase) return;
-  currentBase = key;
-  document.documentElement.setAttribute('data-theme', BASEMAPS[key].dark ? 'dark' : 'light');
-  document.querySelectorAll('#basemaps button').forEach(b=>b.classList.toggle('on', b.dataset.base===key));
-  map.setStyle(basemapStyle(key));
-  map.once('styledata', ()=>{
-    addFloodLayers();
-    setFloodVisible(CHAPTERS[current].layers.includes('flood'));
-    overlay.setProps({ layers: buildLayers() });
-  });
-}
-
 /* ---------- controls ---------- */
 window.addEventListener('DOMContentLoaded', ()=>{
   boot();
@@ -254,9 +277,9 @@ window.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('prev').onclick = ()=> goTo(current-1);
   document.getElementById('replay').onclick = ()=> goTo(current);
   document.getElementById('open').onclick = ()=> document.getElementById('story').classList.toggle('hidden');
-  document.querySelectorAll('#basemaps button').forEach(b=> b.onclick = ()=> setBasemap(b.dataset.base));
   window.addEventListener('keydown', e=>{
     if(e.key==='ArrowRight') goTo(current+1);
     if(e.key==='ArrowLeft') goTo(current-1);
   });
+  let rz; window.addEventListener('resize', ()=>{ clearTimeout(rz); rz=setTimeout(()=>{ if(meta) goTo(current); }, 250); });
 });

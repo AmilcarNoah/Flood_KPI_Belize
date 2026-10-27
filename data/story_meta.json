@@ -5,9 +5,9 @@
     "cell_km": 1.0
   },
   "exposed": {
-    "max": 2503.955249130726,
-    "count": 628,
-    "cell_km": 1.0
+    "max": 802.7162923812866,
+    "count": 1272,
+    "cell_km": 0.5
   },
   "flood": {
     "bounds": [

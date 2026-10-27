@@ -34,12 +34,14 @@ def aggregate_points(path, block=10, vmin=1.0):
            for i in np.nonzero(keep)[0]]
     return pts, float(v[keep].max()) if keep.any() else 0.0
 
-pop_pts, pop_max = aggregate_points(os.path.join(OUT, "worldpop_belize_utm16n_100m.tif"))
-exp_pts, exp_max = aggregate_points(os.path.join(OUT, "flooded_population_belize_100m.tif"))
+pop_pts, pop_max = aggregate_points(os.path.join(OUT, "worldpop_belize_utm16n_100m.tif"), block=10)
+# exposed at a finer 500 m grid so the (sparse) flooded population reads as a
+# denser, more continuous field rather than isolated spikes
+exp_pts, exp_max = aggregate_points(os.path.join(OUT, "flooded_population_belize_100m.tif"), block=5)
 json.dump(pop_pts, open(os.path.join(DDIR, "population_points.json"), "w"))
 json.dump(exp_pts, open(os.path.join(DDIR, "exposed_points.json"), "w"))
 meta["population"] = {"max": pop_max, "count": len(pop_pts), "cell_km": 1.0}
-meta["exposed"]    = {"max": exp_max, "count": len(exp_pts), "cell_km": 1.0}
+meta["exposed"]    = {"max": exp_max, "count": len(exp_pts), "cell_km": 0.5}
 print(f"population points: {len(pop_pts)} (max {pop_max:.0f}/km²)")
 print(f"exposed points   : {len(exp_pts)} (max {exp_max:.0f}/km²)")
 
