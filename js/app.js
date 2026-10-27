@@ -1,4 +1,4 @@
-/* Belize Flood Story — MapLibre GL + deck.gl 3D story map */
+/* Belize Flood Story: MapLibre GL + deck.gl 3D story map */
 'use strict';
 
 const { MapboxOverlay, ColumnLayer, ScatterplotLayer, GeoJsonLayer, BitmapLayer } = deck;
@@ -76,7 +76,7 @@ const CHAPTERS = [
   {
     no:'01', title:'The land & its people', layers:['pop'],
     cam:{ pitch:32, bearing:-10 },
-    narr:`Belize is small and low-lying. These peaks are its people — each column a
+    narr:`Belize is small and low-lying. These peaks are its people where each column is a
       1&nbsp;km cell, its height the number of residents (WorldPop 2025).
       <span class="big">342,870</span><span class="sub">people nationally · tallest peaks are Belize City & the north</span>`,
     legend:{type:'peaks', colors:['#0e6b7a','#1aa3a3','#5fcf7a','#c3e84b','#fbe94e','#ffffff'],
@@ -87,7 +87,7 @@ const CHAPTERS = [
     no:'02', title:'Where the water goes', layers:['flood'],
     cam:{ pitch:22, bearing:-6 },
     narr:`Modelled riverine flooding for a 1-in-100-year event (WRI Aqueduct).
-      Deeper, darker blues mean more severe inundation — the river valleys and the
+      Deeper, darker blues mean more severe inundation. The river valleys and the
       low coastal plain take the worst of it.
       <span class="big">≥ 0.15 m</span><span class="sub">flood depth shown · fading blues scale with severity</span>`,
     legend:{type:'cat', ttl:'Flood depth (WRI Aqueduct)', items:[
@@ -101,7 +101,7 @@ const CHAPTERS = [
     no:'03', title:'People in the water', layers:['flood','exposed'], fit:'exposed',
     cam:{ pitch:46, bearing:-12 },
     narr:`Overlay the people on the flood. These red peaks are residents standing
-      inside the 100-year footprint — exposure, not just hazard.
+      inside the 100-year footprint exposure, not just hazard.
       <span class="big">~49,200</span><span class="sub">people exposed · about 1 in 7 Belizeans</span>`,
     legend:{type:'peaks', colors:['#7c1d0a','#d44a1a','#f5873b','#ffd24a','#fff2c0','#ffffff'],
       labels:['few','many'], ttl:'Exposed population peaks',
@@ -338,7 +338,7 @@ function buildStory(){
   let html = `<section class="step intro active" data-ch="0"><div class="card hero">
     <div class="kicker">Belize · Flood Risk</div>
     <h1>When the Rivers Rise</h1>
-    <p>Where does water go, where does a warning reach?.</p>
+    <p>Where does water go, where does a warning reach?</p>
     <div class="scrollhint"><span class="chev">↓</span> scroll to explore · hover the map to inspect</div>
   </div></section>`;
   CHAPTERS.forEach((ch,i)=>{
@@ -353,7 +353,7 @@ function buildStory(){
     <h2>Reading the risk</h2>
     <div class="body">Hazard and people together. About <em>49,200</em> Belizeans live inside the
       1-in-100-year flood footprint, and roughly <em>7,450</em> of them fall outside modelled
-      early-warning range — the gap this map is built to expose.</div>
+      early-warning range.</div>
     <div class="src">Data: <b>WRI Aqueduct</b> riverine floods · <b>WorldPop 2025</b> ·
       OpenStreetMap masts (5 km buffers in EPSG:32616).<br>Basemaps © OpenFreeMap / Esri.
       Built from the Belize training notebooks.</div>
