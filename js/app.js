@@ -321,11 +321,11 @@ function setChapter(i, force){
 
   const pad = getPadding();
   const bb = chapterBounds(ch);
-  // fit flat so the country fills the free area, then apply a modest pitch
-  let cam = null;
-  try { cam = map.cameraForBounds(bb, { padding: pad, bearing: ch.cam.bearing, maxZoom: 11.5 }); } catch(e){}
-  const pitchEase = ch.cam.pitch >= 40 ? 0.5 : (ch.cam.pitch >= 25 ? 0.25 : 0.1);
-  map.flyTo({ center: cam ? cam.center : meta.center, zoom: (cam ? cam.zoom : 7.0) - pitchEase,
+  // fixed zoom centred on the Belize extent; close enough that Guatemala/Mexico
+  // stay out of frame (the panel covers the western border side)
+  const FIT_ZOOM = 8.5;
+  const ctr = [ (bb[0][0]+bb[1][0])/2, (bb[0][1]+bb[1][1])/2 ];
+  map.flyTo({ center: ctr, zoom: FIT_ZOOM,
               pitch: ch.cam.pitch, bearing: ch.cam.bearing,
               padding: pad, duration: 1600, essential: true });
   setFloodVisible(floodMode(ch));
