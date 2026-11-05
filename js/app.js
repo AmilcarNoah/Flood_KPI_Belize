@@ -108,7 +108,7 @@ const CHAPTERS = [
       caption:'Spike <b>height</b> &amp; <b>colour</b> = flood-exposed residents per 500&nbsp;m cell. Blue = flood extent.'}
   },
   {
-    no:'04', title:'Can the warning reach them?', layers:['flood','coverage','ping','exposed'],
+    no:'04', title:'Can the warning reach them?', layers:['flood','coverage','ping','exposed'], floodFull:true,
     cam:{ pitch:34, bearing:-10 },
     narr:`Each telecom mast can carry an alert about 5&nbsp;km (buffered in UTM&nbsp;16N
       for true distance). Watch the signal pulse outward. Where the pulse never
@@ -256,6 +256,7 @@ function setFloodVisible(mode){
 }
 function floodMode(ch){
   if(!ch.layers.includes('flood')) return null;
+  if(ch.floodFull) return 'full';
   return ch.layers.includes('exposed') ? 'base' : 'full';
 }
 
