@@ -108,7 +108,7 @@ const CHAPTERS = [
       caption:'Spike <b>height</b> &amp; <b>colour</b> = flood-exposed residents per 500&nbsp;m cell. Blue = flood extent.'}
   },
   {
-    no:'04', title:'Can the warning reach them?', layers:['coverage','ping','exposed'],
+    no:'04', title:'Can the warning reach them?', layers:['flood','coverage','ping','exposed'],
     cam:{ pitch:34, bearing:-10 },
     narr:`Each telecom mast can carry an alert about 5&nbsp;km (buffered in UTM&nbsp;16N
       for true distance). Watch the signal pulse outward. Where the pulse never
@@ -117,6 +117,7 @@ const CHAPTERS = [
       <span class="ping-badge"><span class="pulse"></span>132 masts · 5 km reach</span>`,
     legend:{type:'cat', ttl:'Early-warning coverage', items:[
       {color:'rgba(59,209,196,.55)', label:'Within 5 km of a mast'},
+      {color:'rgba(33,113,181,.5)', label:'Flood extent (RP100)'},
       {color:'#7c0007', label:'Exposed population'}]}
   }
 ];
