@@ -1,7 +1,7 @@
 /* Belize Flood Story: MapLibre GL + deck.gl 3D story map */
 'use strict';
 
-const { MapboxOverlay, ColumnLayer, ScatterplotLayer, GeoJsonLayer, BitmapLayer } = deck;
+const { MapboxOverlay, ColumnLayer, ScatterplotLayer, GeoJsonLayer, BitmapLayer, SimpleMeshLayer, COORDINATE_SYSTEM } = deck;
 
 /* ---------- keyless, CORS-enabled vector basemap (OpenFreeMap) ----------
    MapLibre fetches tiles with CORS; OpenFreeMap serves keyless styles with
@@ -52,6 +52,40 @@ function peakLayers(id, data, maxVal, cramp, elevScale, coreR, glowR){
   return [glow, core];
 }
 
+/* convert the raw surface JSON into a loaders.gl-style mesh once */
+function buildPopMesh(s){
+  if(!s) return null;
+  return {
+    origin: s.origin,
+    mesh: {
+      attributes: {
+        POSITION: { value: new Float32Array(s.positions), size: 3 },
+        NORMAL:   { value: new Float32Array(s.normals),   size: 3 },
+        COLOR_0:  { value: new Uint8Array(s.colors),      size: 4, normalized: true }
+      },
+      indices: { value: new Uint32Array(s.indices), size: 1 }
+    }
+  };
+}
+
+/* smooth 3D population terrain surface (SimpleMeshLayer over METER_OFFSETS) */
+function popSurfaceLayer(){
+  const S = DATA.popSurface; if(!S) return null;
+  return new SimpleMeshLayer({
+    id:'pop', data:SINGLE, mesh:S.mesh,
+    coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
+    coordinateOrigin: [S.origin[0], S.origin[1], 0],
+    getPosition: ()=>[0,0,0],
+    getColor: [255,255,255,255],
+    getScale: ()=>[1,1,rise],
+    getOrientation: ()=>[0,0,0],
+    material:{ ambient:.55, diffuse:.7, shininess:20, specularColor:[120,160,160] },
+    parameters:{ depthTest:true },
+    updateTriggers:{ getScale: rise }
+  });
+}
+const SINGLE = [0];
+
 /* ---------- state ---------- */
 let map, overlay, meta, DATA = {}, time = 0, raf;
 let BZ_BOUNDS = null;   // [[w,s],[e,n]] full Belize extent from belize_boundary.geojson
@@ -81,7 +115,7 @@ const CHAPTERS = [
       <span class="big">342,870</span><span class="sub">people nationally · tallest peaks are Belize City & the north</span>`,
     legend:{type:'peaks', colors:['#0e6b7a','#1aa3a3','#5fcf7a','#c3e84b','#fbe94e','#ffffff'],
       labels:['low','dense'], ttl:'Population peaks',
-      caption:'Spike <b>height</b> &amp; <b>colour</b> = residents per 1&nbsp;km² cell (WorldPop 2025).'}
+      caption:'Surface <b>height</b> &amp; <b>colour</b> = residents per 1&nbsp;km² cell (WorldPop 2025).'}
   },
   {
     no:'02', title:'Where the water goes', layers:['flood'],
@@ -132,8 +166,10 @@ function buildLayers(){
     L.push(new GeoJsonLayer({ id:'coverage', data:DATA.coverage, stroked:true, filled:true,
       getFillColor:[59,209,196,70], getLineColor:[59,209,196,180], lineWidthMinPixels:1 }));
   }
-  if(vis.has('pop') && DATA.pop){
-    L.push(...peakLayers('pop', DATA.pop, meta.population.max, PEAK_RAMP, 6.5, 130, 430));
+  if(vis.has('pop')){
+    const surf = popSurfaceLayer();
+    if(surf) L.push(surf);
+    else if(DATA.pop) L.push(...peakLayers('pop', DATA.pop, meta.population.max, PEAK_RAMP, 6.5, 130, 430));
   }
   if(vis.has('exposed') && DATA.exp){
     const m = meta.exposed.max;
@@ -405,11 +441,13 @@ function boot(){
     fetch('data/masts.json').then(r=>r.json()),
     fetch('data/mast_coverage.geojson').then(r=>r.json()),
     fetch('data/flood_vectors.geojson').then(r=>r.json()),
-    fetch('data/belize_boundary.geojson').then(r=>r.json())
-  ]).then(([_,m,pop,exp,masts,cov,flood,bnd])=>{
+    fetch('data/belize_boundary.geojson').then(r=>r.json()),
+    fetch('data/pop_surface.json').then(r=>r.json())
+  ]).then(([_,m,pop,exp,masts,cov,flood,bnd,surf])=>{
     meta = m;
     DATA.pop = pop; DATA.exp = exp; DATA.masts = masts; DATA.coverage = cov; DATA.floodVec = flood;
     DATA.boundary = bnd; BZ_BOUNDS = geojsonBounds(bnd);
+    DATA.popSurface = buildPopMesh(surf);
     addFloodLayers();
     buildStory();
     setupObserver();
